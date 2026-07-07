@@ -3,9 +3,15 @@ import {
   buildMaintenanceAlerts,
   buildMonthlyCsv,
   buildTripRecord,
+  calculateAllocatedMinuteCost,
+  calculateConfiguredMaintenanceCostPerKm,
   calculateDashboardStats,
   calculateMaintenanceCostPerKm,
   calculateTripMetrics,
+  getConsumptionUnitLabel,
+  getDefaultEnergyTypeForVehicleType,
+  getEnergyCostLabel,
+  getEnergyPriceUnitLabel,
   getMonthFromDate,
 } from "./lib/calculations";
 import {
@@ -22,9 +28,12 @@ import {
   AppSnapshot,
   DEFAULT_APP_SETTINGS,
   Decision,
+  ENERGY_TYPE_OPTIONS,
   MONTHLY_TARGET,
   TripInput,
   TripRecord,
+  VEHICLE_TYPE_OPTIONS,
+  VehicleSettings,
 } from "./types";
 
 type TabId = "dashboard" | "trip" | "vehicle" | "maintenance" | "data";
@@ -33,6 +42,13 @@ type Notice = {
   tone: "success" | "warning" | "error";
   message: string;
 };
+
+type VehicleTextField = "vehicleName" | "brand" | "model";
+type VehicleNumericField = Exclude<
+  keyof VehicleSettings,
+  VehicleTextField | "vehicleType" | "energyType"
+>;
+type VehicleSelectField = "vehicleType" | "energyType";
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Tableau de bord" },
@@ -151,6 +167,14 @@ function isSnapshotLike(value: unknown): value is AppSnapshot {
   );
 }
 
+function getVehicleTitle(vehicle: VehicleSettings): string {
+  return vehicle.vehicleName || [vehicle.brand, vehicle.model].filter(Boolean).join(" ").trim() || "Véhicule";
+}
+
+function buildVehicleDescriptor(vehicle: VehicleSettings): string {
+  return [vehicle.vehicleType, vehicle.energyType, `${vehicle.year}`].filter(Boolean).join(" • ");
+}
+
 export default function App() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -206,11 +230,25 @@ export default function App() {
     selectedMonth,
     settings.vehicle.workingDaysPerMonth,
   );
-  const maintenanceCostPerKm = calculateMaintenanceCostPerKm(settings.maintenance);
+  const configuredMaintenanceCostPerKm = calculateConfiguredMaintenanceCostPerKm(settings.vehicle);
+  const derivedMaintenanceCostPerKm = calculateMaintenanceCostPerKm(settings.maintenance);
+  const insuranceCostPerMinute = calculateAllocatedMinuteCost(
+    settings.vehicle.monthlyInsurance,
+    settings.vehicle,
+  );
+  const fixedCostPerMinute = calculateAllocatedMinuteCost(
+    settings.vehicle.monthlyFixedCosts,
+    settings.vehicle,
+  );
   const maintenanceAlerts = buildMaintenanceAlerts(
     settings.vehicle.currentMileage,
     settings.maintenance,
   );
+  const vehicleTitle = getVehicleTitle(settings.vehicle);
+  const vehicleDescriptor = buildVehicleDescriptor(settings.vehicle);
+  const consumptionUnitLabel = getConsumptionUnitLabel(settings.vehicle);
+  const energyPriceUnitLabel = getEnergyPriceUnitLabel(settings.vehicle);
+  const energyCostLabel = getEnergyCostLabel(settings.vehicle);
 
   function setNumericTripField(field: keyof TripInput, rawValue: string) {
     setTripInput((current) => ({
@@ -226,7 +264,17 @@ export default function App() {
     }));
   }
 
-  function setNumericVehicleField(field: keyof AppSettings["vehicle"], rawValue: string) {
+  function setTextVehicleField(field: VehicleTextField, value: string) {
+    setSettings((current) => ({
+      ...current,
+      vehicle: {
+        ...current.vehicle,
+        [field]: value,
+      },
+    }));
+  }
+
+  function setNumericVehicleField(field: VehicleNumericField, rawValue: string) {
     setSettings((current) => ({
       ...current,
       vehicle: {
@@ -234,6 +282,31 @@ export default function App() {
         [field]: Number(rawValue) || 0,
       },
     }));
+  }
+
+  function setSelectVehicleField(field: VehicleSelectField, value: string) {
+    setSettings((current) => {
+      if (field === "vehicleType") {
+        return {
+          ...current,
+          vehicle: {
+            ...current.vehicle,
+            vehicleType: value as VehicleSettings["vehicleType"],
+            energyType: getDefaultEnergyTypeForVehicleType(
+              value as VehicleSettings["vehicleType"],
+            ),
+          },
+        };
+      }
+
+      return {
+        ...current,
+        vehicle: {
+          ...current.vehicle,
+          energyType: value as VehicleSettings["energyType"],
+        },
+      };
+    });
   }
 
   function setNumericMaintenanceField(
@@ -287,7 +360,12 @@ export default function App() {
       setTripInput(createDefaultTripInput());
       setActiveTab("dashboard");
       setNotice({
-        tone: trip.decision === "accepter" ? "success" : trip.decision === "limite" ? "warning" : "error",
+        tone:
+          trip.decision === "accepter"
+            ? "success"
+            : trip.decision === "limite"
+              ? "warning"
+              : "error",
         message: `Course enregistrée : ${formatDecisionLabel(trip.decision)} à ${formatCurrency(
           trip.netHourly,
         )}/h net.`,
@@ -304,7 +382,7 @@ export default function App() {
 
   function handleExportJson() {
     const snapshot: AppSnapshot = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       settings,
       trips,
@@ -340,8 +418,10 @@ export default function App() {
       }
 
       await importSnapshot(parsed);
-      setSettings(parsed.settings);
-      setTrips(sortTripsDescending(parsed.trips));
+
+      const [nextSettings, nextTrips] = await Promise.all([getAppSettings(), getTrips()]);
+      setSettings(nextSettings);
+      setTrips(sortTripsDescending(nextTrips));
       setSelectedMonth(getCurrentMonthValue());
       setNotice({ tone: "success", message: "Import JSON terminé." });
     } catch (error) {
@@ -431,8 +511,8 @@ export default function App() {
             <p className="eyebrow">PWA VTC mobile-first</p>
             <h1>Cap 4000 VTC</h1>
             <p className="hero-copy">
-              Refusez les courses non rentables, pilotez votre objectif de {formatCurrency(MONTHLY_TARGET)} brut,
-              et gardez une vision claire de votre net réel.
+              Basez chaque décision sur votre vrai véhicule, vos vrais frais, et gardez le cap sur{" "}
+              {formatCurrency(MONTHLY_TARGET)} brut par mois.
             </p>
           </div>
           <div className={`decision-banner ${tripPreview.decision}`}>
@@ -444,16 +524,16 @@ export default function App() {
 
         <section className="rules-card">
           <div>
-            <strong>Seuil net minimum</strong>
-            <span>30 €/h</span>
+            <strong>Profil actif</strong>
+            <span>{vehicleTitle}</span>
           </div>
           <div>
             <strong>Temps pris en compte</strong>
             <span>Approche + attente + course</span>
           </div>
           <div>
-            <strong>Écart instantané</strong>
-            <span>{formatCurrency(tripPreview.gap)}</span>
+            <strong>Seuil net minimum</strong>
+            <span>30 €/h</span>
           </div>
         </section>
 
@@ -613,6 +693,21 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="profile-banner">
+                <div>
+                  <p className="profile-banner__title">{vehicleTitle}</p>
+                  <p className="section-copy">{vehicleDescriptor}</p>
+                </div>
+                <div className="profile-badges">
+                  <span className="profile-badge">
+                    {formatNumber(settings.vehicle.averageConsumptionPer100Km, ` ${consumptionUnitLabel}`)}
+                  </span>
+                  <span className="profile-badge">
+                    {formatCurrency(settings.vehicle.energyPricePerUnit)} {energyPriceUnitLabel.replace("€/", "/")}
+                  </span>
+                </div>
+              </div>
+
               <div className="form-grid">
                 <label className="field">
                   <span>Date</span>
@@ -730,27 +825,32 @@ export default function App() {
               </div>
 
               <div className="metric-grid">
-                <MetricCard label="CA brut de la course" value={formatCurrency(tripPreview.grossRevenue)} />
+                <MetricCard label="Prix proposé" value={formatCurrency(tripPreview.grossRevenue)} />
                 <MetricCard label="Temps total" value={formatNumber(tripPreview.totalMinutes, " min")} />
-                <MetricCard label="Kilomètres totaux" value={formatNumber(tripPreview.totalKm, " km")} />
-                <MetricCard label="Coût carburant" value={formatCurrency(tripPreview.fuelCost)} />
+                <MetricCard label="Km total" value={formatNumber(tripPreview.totalKm, " km")} />
+                <MetricCard label={energyCostLabel} value={formatCurrency(tripPreview.fuelCost)} />
                 <MetricCard
-                  label="Assurance imputée"
+                  label="Coût assurance"
                   value={formatCurrency(tripPreview.insuranceAllocated)}
                 />
                 <MetricCard
-                  label="Entretien provisionné"
+                  label="Coût frais fixes"
+                  value={formatCurrency(tripPreview.fixedCostsAllocated)}
+                />
+                <MetricCard
+                  label="Coût entretien"
                   value={formatCurrency(tripPreview.maintenanceReserved)}
                 />
+                <MetricCard label="Coût pneus" value={formatCurrency(tripPreview.tiresCost)} />
+                <MetricCard label="Coût freins" value={formatCurrency(tripPreview.brakesCost)} />
+                <MetricCard label="Coût vidange" value={formatCurrency(tripPreview.oilChangeCost)} />
                 <MetricCard label="Frais totaux" value={formatCurrency(tripPreview.totalCosts)} />
                 <MetricCard label="Net réel" value={formatCurrency(tripPreview.netIncome)} />
-                <MetricCard label="€/h brut" value={`${formatCurrency(tripPreview.grossHourly)}/h`} />
                 <MetricCard label="€/h net" value={`${formatCurrency(tripPreview.netHourly)}/h`} />
                 <MetricCard
-                  label="Prix minimum avec frais"
-                  value={formatCurrency(tripPreview.minimumPriceWithCosts)}
+                  label="Décision"
+                  value={formatDecisionLabel(tripPreview.decision)}
                 />
-                <MetricCard label="Écart" value={formatCurrency(tripPreview.gap)} />
               </div>
 
               <button
@@ -770,105 +870,282 @@ export default function App() {
             <article className="panel-card">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Réglages véhicule</p>
-                  <h2>Frais d'exploitation</h2>
+                  <p className="eyebrow">Profil véhicule</p>
+                  <h2>Véhicule & frais complets</h2>
                 </div>
               </div>
 
-              <div className="form-grid">
-                <label className="field">
-                  <span>Kilométrage actuel véhicule</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={settings.vehicle.currentMileage}
-                    onChange={(event) => setNumericVehicleField("currentMileage", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Consommation L/100 km</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={settings.vehicle.fuelConsumptionPer100Km}
-                    onChange={(event) =>
-                      setNumericVehicleField("fuelConsumptionPer100Km", event.target.value)
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span>Prix carburant €/L</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={settings.vehicle.fuelPricePerLiter}
-                    onChange={(event) => setNumericVehicleField("fuelPricePerLiter", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Assurance mensuelle (€)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={settings.vehicle.monthlyInsurance}
-                    onChange={(event) => setNumericVehicleField("monthlyInsurance", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Jours travaillés par mois</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={settings.vehicle.workingDaysPerMonth}
-                    onChange={(event) => setNumericVehicleField("workingDaysPerMonth", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Heures travaillées par jour</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.5"
-                    value={settings.vehicle.workingHoursPerDay}
-                    onChange={(event) => setNumericVehicleField("workingHoursPerDay", event.target.value)}
-                  />
-                </label>
+              <div className="profile-banner">
+                <div>
+                  <p className="profile-banner__title">{vehicleTitle}</p>
+                  <p className="section-copy">{vehicleDescriptor}</p>
+                </div>
+                <div className="profile-badges">
+                  <span className="profile-badge">{settings.vehicle.energyType}</span>
+                  <span className="profile-badge">{formatInteger(settings.vehicle.currentMileage, " km")}</span>
+                </div>
               </div>
 
-              <div className="inline-metrics">
-                <div>
-                  <strong>Coût entretien actuel</strong>
-                  <span>{formatCurrency(maintenanceCostPerKm)}/km</span>
-                </div>
-                <div>
-                  <strong>Assurance par minute</strong>
-                  <span>
-                    {formatCurrency(
-                      settings.vehicle.monthlyInsurance /
-                        Math.max(
-                          settings.vehicle.workingDaysPerMonth *
-                            settings.vehicle.workingHoursPerDay *
-                            60,
-                          1,
-                        ),
-                    )}
-                    /min
-                  </span>
-                </div>
+              <div className="group-grid">
+                <section className="group-card">
+                  <h3>Identité du véhicule</h3>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Nom du véhicule</span>
+                      <input
+                        type="text"
+                        value={settings.vehicle.vehicleName}
+                        onChange={(event) => setTextVehicleField("vehicleName", event.target.value)}
+                        placeholder="Toyota Prius 3"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Marque</span>
+                      <input
+                        type="text"
+                        value={settings.vehicle.brand}
+                        onChange={(event) => setTextVehicleField("brand", event.target.value)}
+                        placeholder="Toyota"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Modèle</span>
+                      <input
+                        type="text"
+                        value={settings.vehicle.model}
+                        onChange={(event) => setTextVehicleField("model", event.target.value)}
+                        placeholder="Prius 3"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Année</span>
+                      <input
+                        type="number"
+                        min="1900"
+                        max="2100"
+                        step="1"
+                        value={settings.vehicle.year}
+                        onChange={(event) => setNumericVehicleField("year", event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Type de véhicule</span>
+                      <select
+                        value={settings.vehicle.vehicleType}
+                        onChange={(event) => setSelectVehicleField("vehicleType", event.target.value)}
+                      >
+                        {VEHICLE_TYPE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Carburant / énergie</span>
+                      <select
+                        value={settings.vehicle.energyType}
+                        onChange={(event) => setSelectVehicleField("energyType", event.target.value)}
+                      >
+                        {ENERGY_TYPE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="group-card">
+                  <h3>Énergie & usage</h3>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Consommation moyenne</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={settings.vehicle.averageConsumptionPer100Km}
+                        onChange={(event) =>
+                          setNumericVehicleField("averageConsumptionPer100Km", event.target.value)
+                        }
+                      />
+                      <small className="field-note">{consumptionUnitLabel}</small>
+                    </label>
+                    <label className="field">
+                      <span>Prix carburant / énergie</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={settings.vehicle.energyPricePerUnit}
+                        onChange={(event) =>
+                          setNumericVehicleField("energyPricePerUnit", event.target.value)
+                        }
+                      />
+                      <small className="field-note">{energyPriceUnitLabel}</small>
+                    </label>
+                    <label className="field">
+                      <span>Kilométrage actuel</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={settings.vehicle.currentMileage}
+                        onChange={(event) => setNumericVehicleField("currentMileage", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="group-card">
+                  <h3>Temps de travail & frais fixes</h3>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Assurance mensuelle (€)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={settings.vehicle.monthlyInsurance}
+                        onChange={(event) => setNumericVehicleField("monthlyInsurance", event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Jours travaillés par mois</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={settings.vehicle.workingDaysPerMonth}
+                        onChange={(event) =>
+                          setNumericVehicleField("workingDaysPerMonth", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Heures travaillées par jour</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="0.5"
+                        value={settings.vehicle.workingHoursPerDay}
+                        onChange={(event) =>
+                          setNumericVehicleField("workingHoursPerDay", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Frais fixes mensuels (€)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={settings.vehicle.monthlyFixedCosts}
+                        onChange={(event) =>
+                          setNumericVehicleField("monthlyFixedCosts", event.target.value)
+                        }
+                      />
+                      <small className="field-note">
+                        Location, crédit, abonnement, parking, lavage, téléphone...
+                      </small>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="group-card">
+                  <h3>Coûts variables au km</h3>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Coût entretien estimé €/km</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={settings.vehicle.estimatedMaintenanceCostPerKm}
+                        onChange={(event) =>
+                          setNumericVehicleField("estimatedMaintenanceCostPerKm", event.target.value)
+                        }
+                      />
+                      <small className="field-note">
+                        Utilisé directement dans le calcul de rentabilité.
+                      </small>
+                    </label>
+                    <label className="field">
+                      <span>Coût pneus estimé €/km</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={settings.vehicle.estimatedTiresCostPerKm}
+                        onChange={(event) =>
+                          setNumericVehicleField("estimatedTiresCostPerKm", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Coût freins estimé €/km</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={settings.vehicle.estimatedBrakesCostPerKm}
+                        onChange={(event) =>
+                          setNumericVehicleField("estimatedBrakesCostPerKm", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Coût vidange estimé €/km</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={settings.vehicle.estimatedOilChangeCostPerKm}
+                        onChange={(event) =>
+                          setNumericVehicleField("estimatedOilChangeCostPerKm", event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                </section>
+              </div>
+
+              <div className="metric-grid">
+                <MetricCard
+                  label="Coût assurance / min"
+                  value={`${formatCurrency(insuranceCostPerMinute)}/min`}
+                />
+                <MetricCard
+                  label="Frais fixes / min"
+                  value={`${formatCurrency(fixedCostPerMinute)}/min`}
+                />
+                <MetricCard
+                  label="Coûts variables configurés / km"
+                  value={`${formatCurrency(configuredMaintenanceCostPerKm)}/km`}
+                />
+                <MetricCard
+                  label="Consommation active"
+                  value={formatNumber(settings.vehicle.averageConsumptionPer100Km, ` ${consumptionUnitLabel}`)}
+                />
+                <MetricCard
+                  label="Prix énergie actif"
+                  value={`${formatCurrency(settings.vehicle.energyPricePerUnit)} ${energyPriceUnitLabel.replace("€/", "/")}`}
+                />
+                <MetricCard
+                  label="Référence entretien tab"
+                  value={`${formatCurrency(derivedMaintenanceCostPerKm)}/km`}
+                />
               </div>
 
               <button
                 className="primary-button neutral"
                 type="button"
-                onClick={() => persistSettings("Paramètres véhicule enregistrés.")}
+                onClick={() => persistSettings("Paramètres véhicule et frais enregistrés.")}
                 disabled={saving}
               >
-                {saving ? "Sauvegarde..." : "Enregistrer les frais véhicule"}
+                {saving ? "Sauvegarde..." : "Enregistrer le profil véhicule"}
               </button>
             </article>
           </section>
@@ -880,9 +1157,14 @@ export default function App() {
               <div className="section-heading">
                 <div>
                   <p className="eyebrow">Entretien véhicule</p>
-                  <h2>Provision et alertes</h2>
+                  <h2>Suivi mécanique et alertes</h2>
                 </div>
               </div>
+
+              <p className="section-copy">
+                Cet écran sert à suivre vos échéances mécaniques. Les coûts utilisés dans la rentabilité
+                d’une course se règlent dans l’onglet <strong>Véhicule & frais</strong>.
+              </p>
 
               <div className="form-grid">
                 <label className="field">
@@ -1018,7 +1300,14 @@ export default function App() {
               </div>
 
               <div className="metric-grid">
-                <MetricCard label="Coût entretien €/km" value={`${formatCurrency(maintenanceCostPerKm)}/km`} />
+                <MetricCard
+                  label="Coût théorique via entretien"
+                  value={`${formatCurrency(derivedMaintenanceCostPerKm)}/km`}
+                />
+                <MetricCard
+                  label="Coût configuré en rentabilité"
+                  value={`${formatCurrency(configuredMaintenanceCostPerKm)}/km`}
+                />
                 <MetricCard
                   label="Prochaine vidange"
                   value={`${formatInteger(settings.maintenance.lastOilChangeKm + settings.maintenance.oilChangeIntervalKm)} km`}

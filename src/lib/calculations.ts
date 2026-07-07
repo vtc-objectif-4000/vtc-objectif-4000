@@ -2,6 +2,7 @@ import {
   AppSettings,
   DashboardStats,
   Decision,
+  EnergyType,
   LIMIT_NET_HOURLY,
   MONTHLY_TARGET,
   MaintenanceAlert,
@@ -10,6 +11,7 @@ import {
   TripInput,
   TripRecord,
   VehicleSettings,
+  VehicleType,
 } from "../types";
 
 function roundTo(value: number, decimals = 2): number {
@@ -21,8 +23,68 @@ function safeDivide(value: number, divisor: number): number {
   return divisor > 0 ? value / divisor : 0;
 }
 
+function asFiniteNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 export function getMonthFromDate(date: string): string {
   return date.slice(0, 7);
+}
+
+export function isElectricVehicle(vehicle: Pick<VehicleSettings, "vehicleType" | "energyType">): boolean {
+  return vehicle.vehicleType === "Électrique" || vehicle.energyType === "Électricité";
+}
+
+export function getDefaultEnergyTypeForVehicleType(vehicleType: VehicleType): EnergyType {
+  if (vehicleType === "Électrique") {
+    return "Électricité";
+  }
+
+  if (vehicleType === "Diesel") {
+    return "Diesel";
+  }
+
+  return "SP95-E10";
+}
+
+export function getConsumptionUnitLabel(vehicle: Pick<VehicleSettings, "vehicleType" | "energyType">): string {
+  return isElectricVehicle(vehicle) ? "kWh/100 km" : "L/100 km";
+}
+
+export function getEnergyPriceUnitLabel(vehicle: Pick<VehicleSettings, "vehicleType" | "energyType">): string {
+  return isElectricVehicle(vehicle) ? "€/kWh" : "€/L";
+}
+
+export function getEnergyCostLabel(vehicle: Pick<VehicleSettings, "vehicleType" | "energyType">): string {
+  return isElectricVehicle(vehicle) ? "Coût énergie" : "Coût carburant";
+}
+
+export function calculateConfiguredMaintenanceCostPerKm(
+  vehicle: Pick<
+    VehicleSettings,
+    | "estimatedMaintenanceCostPerKm"
+    | "estimatedTiresCostPerKm"
+    | "estimatedBrakesCostPerKm"
+    | "estimatedOilChangeCostPerKm"
+  >,
+): number {
+  return roundTo(
+    vehicle.estimatedMaintenanceCostPerKm +
+      vehicle.estimatedTiresCostPerKm +
+      vehicle.estimatedBrakesCostPerKm +
+      vehicle.estimatedOilChangeCostPerKm,
+    4,
+  );
+}
+
+export function calculateAllocatedMinuteCost(
+  monthlyCost: number,
+  vehicle: Pick<VehicleSettings, "workingDaysPerMonth" | "workingHoursPerDay">,
+): number {
+  return safeDivide(
+    monthlyCost,
+    vehicle.workingDaysPerMonth * vehicle.workingHoursPerDay * 60,
+  );
 }
 
 export function calculateMaintenanceCostPerKm(settings: MaintenanceSettings): number {
@@ -59,7 +121,7 @@ export function getDecision(netHourly: number): Decision {
 export function calculateTripMetrics(
   input: TripInput,
   vehicle: VehicleSettings,
-  maintenance: MaintenanceSettings,
+  _maintenance: MaintenanceSettings,
 ) {
   const totalMinutes = Math.max(
     input.approachMinutes + input.waitMinutes + input.tripMinutes,
@@ -67,17 +129,26 @@ export function calculateTripMetrics(
   );
   const totalKm = Math.max(input.approachKm + input.tripKm, 0);
   const grossRevenue = Math.max(input.priceProposed, 0);
-  const maintenanceCostPerKm = calculateMaintenanceCostPerKm(maintenance);
+  const maintenanceCostPerKm = calculateConfiguredMaintenanceCostPerKm(vehicle);
 
   const fuelCost =
-    totalKm * safeDivide(vehicle.fuelConsumptionPer100Km, 100) * vehicle.fuelPricePerLiter;
+    totalKm * safeDivide(vehicle.averageConsumptionPer100Km, 100) * vehicle.energyPricePerUnit;
   const insuranceAllocated =
-    safeDivide(
-      vehicle.monthlyInsurance,
-      vehicle.workingDaysPerMonth * vehicle.workingHoursPerDay * 60,
-    ) * totalMinutes;
-  const maintenanceReserved = totalKm * maintenanceCostPerKm;
-  const totalCosts = fuelCost + insuranceAllocated + maintenanceReserved;
+    calculateAllocatedMinuteCost(vehicle.monthlyInsurance, vehicle) * totalMinutes;
+  const fixedCostsAllocated =
+    calculateAllocatedMinuteCost(vehicle.monthlyFixedCosts, vehicle) * totalMinutes;
+  const maintenanceReserved = totalKm * vehicle.estimatedMaintenanceCostPerKm;
+  const tiresCost = totalKm * vehicle.estimatedTiresCostPerKm;
+  const brakesCost = totalKm * vehicle.estimatedBrakesCostPerKm;
+  const oilChangeCost = totalKm * vehicle.estimatedOilChangeCostPerKm;
+  const totalCosts =
+    fuelCost +
+    insuranceAllocated +
+    fixedCostsAllocated +
+    maintenanceReserved +
+    tiresCost +
+    brakesCost +
+    oilChangeCost;
   const netIncome = grossRevenue - totalCosts;
   const grossHourly = safeDivide(grossRevenue, totalMinutes) * 60;
   const netHourly = safeDivide(netIncome, totalMinutes) * 60;
@@ -90,7 +161,11 @@ export function calculateTripMetrics(
     totalKm: roundTo(totalKm),
     fuelCost: roundTo(fuelCost),
     insuranceAllocated: roundTo(insuranceAllocated),
+    fixedCostsAllocated: roundTo(fixedCostsAllocated),
     maintenanceReserved: roundTo(maintenanceReserved),
+    tiresCost: roundTo(tiresCost),
+    brakesCost: roundTo(brakesCost),
+    oilChangeCost: roundTo(oilChangeCost),
     maintenanceCostPerKm: roundTo(maintenanceCostPerKm, 4),
     totalCosts: roundTo(totalCosts),
     netIncome: roundTo(netIncome),
@@ -119,6 +194,95 @@ export function buildTripRecord(input: TripInput, settings: AppSettings): TripRe
     month: getMonthFromDate(input.date),
     ...input,
     ...metrics,
+  };
+}
+
+export function normalizeTripRecord(rawTrip: Partial<TripRecord>): TripRecord {
+  const totalMinutes = asFiniteNumber(
+    rawTrip.totalMinutes,
+    asFiniteNumber(rawTrip.approachMinutes) +
+      asFiniteNumber(rawTrip.waitMinutes) +
+      asFiniteNumber(rawTrip.tripMinutes),
+  );
+  const totalKm = asFiniteNumber(
+    rawTrip.totalKm,
+    asFiniteNumber(rawTrip.approachKm) + asFiniteNumber(rawTrip.tripKm),
+  );
+  const maintenanceReserved = asFiniteNumber(rawTrip.maintenanceReserved);
+  const tiresCost = asFiniteNumber(rawTrip.tiresCost);
+  const brakesCost = asFiniteNumber(rawTrip.brakesCost);
+  const oilChangeCost = asFiniteNumber(rawTrip.oilChangeCost);
+  const fuelCost = asFiniteNumber(rawTrip.fuelCost);
+  const insuranceAllocated = asFiniteNumber(rawTrip.insuranceAllocated);
+  const fixedCostsAllocated = asFiniteNumber(rawTrip.fixedCostsAllocated);
+  const grossRevenue = asFiniteNumber(rawTrip.grossRevenue, asFiniteNumber(rawTrip.priceProposed));
+  const totalCosts = asFiniteNumber(
+    rawTrip.totalCosts,
+    fuelCost +
+      insuranceAllocated +
+      fixedCostsAllocated +
+      maintenanceReserved +
+      tiresCost +
+      brakesCost +
+      oilChangeCost,
+  );
+  const netIncome = asFiniteNumber(rawTrip.netIncome, grossRevenue - totalCosts);
+  const grossHourly = asFiniteNumber(rawTrip.grossHourly, safeDivide(grossRevenue, totalMinutes) * 60);
+  const netHourly = asFiniteNumber(rawTrip.netHourly, safeDivide(netIncome, totalMinutes) * 60);
+  const minimumPriceWithCosts = asFiniteNumber(
+    rawTrip.minimumPriceWithCosts,
+    TARGET_NET_HOURLY * safeDivide(totalMinutes, 60) + totalCosts,
+  );
+  const gap = asFiniteNumber(rawTrip.gap, grossRevenue - minimumPriceWithCosts);
+  const maintenanceCostPerKm = asFiniteNumber(
+    rawTrip.maintenanceCostPerKm,
+    totalKm > 0 ? (maintenanceReserved + tiresCost + brakesCost + oilChangeCost) / totalKm : 0,
+  );
+  const decision =
+    rawTrip.decision === "accepter" ||
+    rawTrip.decision === "limite" ||
+    rawTrip.decision === "refuser"
+      ? rawTrip.decision
+      : getDecision(netHourly);
+
+  return {
+    id: typeof rawTrip.id === "string" && rawTrip.id ? rawTrip.id : buildId(),
+    createdAt:
+      typeof rawTrip.createdAt === "string" && rawTrip.createdAt
+        ? rawTrip.createdAt
+        : new Date().toISOString(),
+    month:
+      typeof rawTrip.month === "string" && rawTrip.month
+        ? rawTrip.month
+        : getMonthFromDate(typeof rawTrip.date === "string" ? rawTrip.date : new Date().toISOString()),
+    date: typeof rawTrip.date === "string" ? rawTrip.date : new Date().toISOString().slice(0, 10),
+    priceProposed: asFiniteNumber(rawTrip.priceProposed),
+    approachMinutes: asFiniteNumber(rawTrip.approachMinutes),
+    waitMinutes: asFiniteNumber(rawTrip.waitMinutes),
+    tripMinutes: asFiniteNumber(rawTrip.tripMinutes),
+    approachKm: asFiniteNumber(rawTrip.approachKm),
+    tripKm: asFiniteNumber(rawTrip.tripKm),
+    note: typeof rawTrip.note === "string" ? rawTrip.note : "",
+    zone: typeof rawTrip.zone === "string" ? rawTrip.zone : "",
+    comment: typeof rawTrip.comment === "string" ? rawTrip.comment : "",
+    grossRevenue: roundTo(grossRevenue),
+    totalMinutes: roundTo(totalMinutes),
+    totalKm: roundTo(totalKm),
+    fuelCost: roundTo(fuelCost),
+    insuranceAllocated: roundTo(insuranceAllocated),
+    fixedCostsAllocated: roundTo(fixedCostsAllocated),
+    maintenanceReserved: roundTo(maintenanceReserved),
+    tiresCost: roundTo(tiresCost),
+    brakesCost: roundTo(brakesCost),
+    oilChangeCost: roundTo(oilChangeCost),
+    maintenanceCostPerKm: roundTo(maintenanceCostPerKm, 4),
+    totalCosts: roundTo(totalCosts),
+    netIncome: roundTo(netIncome),
+    grossHourly: roundTo(grossHourly),
+    netHourly: roundTo(netHourly),
+    minimumPriceWithCosts: roundTo(minimumPriceWithCosts),
+    gap: roundTo(gap),
+    decision,
   };
 }
 
@@ -228,9 +392,13 @@ export function buildMonthlyCsv(trips: TripRecord[], month: string): string {
     "Km approche",
     "Km course",
     "Km total",
-    "Carburant",
+    "Carburant ou energie",
     "Assurance",
+    "Frais fixes",
     "Entretien",
+    "Pneus",
+    "Freins",
+    "Vidange",
     "Frais totaux",
     "Net reel",
     "EUR/h brut",
@@ -257,7 +425,11 @@ export function buildMonthlyCsv(trips: TripRecord[], month: string): string {
       trip.totalKm,
       trip.fuelCost,
       trip.insuranceAllocated,
+      trip.fixedCostsAllocated,
       trip.maintenanceReserved,
+      trip.tiresCost,
+      trip.brakesCost,
+      trip.oilChangeCost,
       trip.totalCosts,
       trip.netIncome,
       trip.grossHourly,

@@ -30,6 +30,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -39,6 +40,7 @@ button {
 }
 
 input,
+select,
 textarea {
   border: none;
   outline: none;
@@ -267,6 +269,7 @@ textarea {
 }
 
 .field input,
+.field select,
 .field textarea {
   width: 100%;
   padding: 16px;
@@ -278,6 +281,13 @@ textarea {
 
 .field textarea {
   resize: vertical;
+}
+
+.field-note,
+.section-copy {
+  margin: 0;
+  color: #5e7472;
+  font-size: 0.86rem;
 }
 
 .field.compact {
@@ -293,6 +303,56 @@ textarea {
 .alerts-grid {
   display: grid;
   gap: 14px;
+}
+
+.group-grid {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.group-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 244, 230, 0.78));
+  border: 1px solid rgba(21, 63, 59, 0.08);
+}
+
+.group-card h3,
+.profile-banner__title {
+  margin: 0;
+}
+
+.profile-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(15, 138, 95, 0.1), rgba(244, 201, 93, 0.14));
+  border: 1px solid rgba(15, 138, 95, 0.1);
+}
+
+.profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(21, 63, 59, 0.1);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #274440;
 }
 
 .metric-grid {
@@ -513,6 +573,10 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .group-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .metric-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -537,7 +601,8 @@ textarea {
 
   .section-heading,
   .trip-row__top,
-  .notice {
+  .notice,
+  .profile-banner {
     flex-direction: column;
   }
 }
