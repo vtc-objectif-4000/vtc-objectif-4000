@@ -1,0 +1,53 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-sand-50 text-slate-800 antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(45, 122, 110, 0.12), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(221, 109, 69, 0.12), transparent 26%);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-serif text-pine-900;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply border-none bg-white/90 text-slate-800 ring-1 ring-sand-200 placeholder:text-slate-400 focus:ring-2 focus:ring-pine-300;
+  }
+}
+
+@layer components {
+  .page-title {
+    @apply font-serif text-4xl sm:text-5xl;
+  }
+
+  .page-subtitle {
+    @apply mt-3 max-w-3xl text-sm leading-7 text-slate-600;
+  }
+
+  .field-label {
+    @apply mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-slate-500;
+  }
+
+  .field-input {
+    @apply w-full rounded-2xl px-4 py-3 text-sm;
+  }
+
+  .field-textarea {
+    @apply field-input min-h-[120px] resize-y;
+  }
+}

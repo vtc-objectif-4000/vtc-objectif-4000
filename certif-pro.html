@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduConcret Certif PRO | Audit Qualiopi & IA</title>
+  <meta name="description" content="Tableau de bord EduConcret Certif PRO pour piloter un audit Qualiopi, suivre les preuves, détecter les risques et générer des documents de conformité.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&amp;family=Fraunces:opsz,wght@9..144,600;9..144,800;9..144,900&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink: #0f0d0b;
+      --ink-2: #28231d;
+      --muted: #70675d;
+      --paper: #fbf8f2;
+      --paper-2: #f1eadf;
+      --white: #fff;
+      --line: #e6ddd0;
+      --gold: #c9a84c;
+      --gold-2: #e9cd73;
+      --teal: #2a7b6e;
+      --blue: #2f6fa6;
+      --red: #c75a3a;
+      --violet: #5c4d8a;
+      --shadow: 0 20px 50px rgba(15, 13, 11, .08);
+      --shadow-strong: 0 24px 70px rgba(15, 13, 11, .16);
+      --radius: 8px;
+      --radius-lg: 18px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 8% 6%, rgba(201, 168, 76, .18), transparent 24%),
+        radial-gradient(circle at 92% 12%, rgba(42, 123, 110, .13), transparent 24%),
+        var(--paper);
+      color: var(--ink);
+      font-family: "DM Sans", system-ui, sans-serif;
+      line-height: 1.6;
+    }
+
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      padding: 16px clamp(18px, 4vw, 48px);
+      background: rgba(251, 248, 242, .86);
+      backdrop-filter: blur(22px);
+      border-bottom: 1px solid rgba(15, 13, 11, .08);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 7px rgba(201, 168, 76, .14), 0 0 24px rgba(201, 168, 76, .5);
+      flex: 0 0 auto;
+    }
+
+    .brand strong {
+      display: block;
+      font-family: "Fraunces", serif;
+      font-size: clamp(1.05rem, 2vw, 1.45rem);
+      font-weight: 900;
+      line-height: 1.05;
+    }
+
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 290px minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 74px;
+      height: calc(100vh - 74px);
+      padding: 28px 18px;
+      background: rgba(255, 255, 255, .82);
+      border-right: 1px solid rgba(15, 13, 11, .08);
+      backdrop-filter: blur(14px);
+      overflow-y: auto;
+    }
+
+    .nav-group-label {
+      margin: 0 12px 12px;
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 900;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      border: 0;
+      border-radius: var(--radius);
+      color: rgba(15, 13, 11, .64);
+      background: transparent;
+      text-align: left;
+      font-weight: 800;
+      transition: transform .2s, color .2s, background .2s, box-shadow .2s;
+    }
+
+    .nav-item:hover {
+      transform: translateX(3px);
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    .nav-item.active {
+      color: var(--white);
+      background: var(--ink);
+      box-shadow: 0 16px 34px rgba(15, 13, 11, .16);
+    }
+
+    .content {
+      width: min(1220px, 100%);
+      padding: clamp(24px, 5vw, 56px);
+    }
+
+    .view-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      font-size: .76rem;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      margin-bottom: 9px;
+    }
+
+    h1, h2, h3 {
+      font-family: "Fraunces", Georgia, serif;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    h1 { font-size: clamp(2.1rem, 5vw, 4rem); font-weight: 900; }
+    h2 { font-size: clamp(1.55rem, 3vw, 2.45rem); font-weight: 900; }
+    h3 { font-size: 1.16rem; font-weight: 900; }
+
+    .muted { color: var(--muted); }
+
+    .btn {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 999px;
+      padding: .72rem 1.18rem;
+      font-size: .86rem;
+      font-weight: 900;
+      text-decoration: none;
+      transition: transform .2s, box-shadow .2s, background .2s, opacity .2s;
+    }
+
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .btn-primary { background: var(--gold); color: var(--ink); }
+    .btn-dark { background: var(--ink); color: var(--white); }
+    .btn-ghost { background: rgba(15, 13, 11, .06); color: var(--ink); }
+    .btn-danger { background: var(--red); color: var(--white); }
+    .btn:disabled { opacity: .5; transform: none; cursor: not-allowed; box-shadow: none; }
+
+    .grid { display: grid; gap: 18px; }
+    .grid.stats { grid-template-columns: 1.6fr 1fr 1fr; margin-bottom: 26px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .card {
+      background: rgba(255, 255, 255, .86);
+      border: 1px solid rgba(15, 13, 11, .07);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      position: relative;
+      overflow: hidden;
+      color: var(--white);
+      background:
+        radial-gradient(circle at 90% 10%, rgba(201, 168, 76, .32), transparent 28%),
+        linear-gradient(135deg, #0f0d0b, #292018);
+    }
+
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      right: -60px;
+      bottom: -70px;
+      width: 230px;
+      height: 230px;
+      border-radius: 50%;
+      border: 34px solid rgba(201, 168, 76, .13);
+    }
+
+    .metric-label {
+      color: inherit;
+      opacity: .68;
+      font-size: .72rem;
+      font-weight: 900;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 10px;
+      font-family: "Fraunces", serif;
+      font-size: clamp(2.3rem, 6vw, 4.6rem);
+      font-weight: 900;
+      line-height: .95;
+    }
+
+    .metric-note { margin-top: 12px; color: inherit; opacity: .74; font-weight: 700; }
+
+    .risk-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .indicator {
+      overflow: hidden;
+      padding: 0;
+    }
+
+    .indicator-main {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .indicator-title {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      font-weight: 900;
+    }
+
+    .code {
+      color: var(--gold);
+      font-weight: 900;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: .28rem .72rem;
+      font-size: .72rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .pill-red { color: #9d321c; background: #fff0eb; }
+    .pill-green { color: #176b5c; background: #eaf8f4; }
+    .pill-gold { color: #6f5411; background: #fff5d8; }
+    .pill-blue { color: #255d92; background: #eaf4ff; }
+
+    .progress-track {
+      height: 8px;
+      margin-top: 12px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #eee7dc;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: var(--value);
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--red), var(--gold), var(--teal));
+    }
+
+    .indicator-detail {
+      display: none;
+      padding: 0 18px 18px;
+      border-top: 1px solid rgba(15, 13, 11, .07);
+    }
+
+    .indicator.open .indicator-detail { display: block; }
+
+    .check-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(15, 13, 11, .06);
+    }
+
+    .check-row:last-child { border-bottom: 0; }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--teal);
+    }
+
+    .scan-zone {
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      min-height: 330px;
+      padding: 36px;
+      border: 2px dashed rgba(201, 168, 76, .72);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, .78);
+      text-align: center;
+      transition: background .2s, border-color .2s, transform .2s;
+    }
+
+    .scan-zone.dragover,
+    .scan-zone:hover {
+      background: #fffdf8;
+      border-color: var(--gold);
+      transform: translateY(-2px);
+    }
+
+    .scan-line {
+      display: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 3px;
+      background: var(--gold);
+      box-shadow: 0 0 22px var(--gold);
+      animation: scan 2.2s ease-in-out infinite;
+    }
+
+    .scanning .scan-line { display: block; }
+    @keyframes scan { 0%, 100% { top: 0%; } 50% { top: 100%; } }
+
+    .report {
+      display: grid;
+      gap: 14px;
+      margin-top: 20px;
+    }
+
+    .alert {
+      border-left: 5px solid var(--red);
+      background: #fff7f4;
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: .82rem .9rem;
+      background: var(--white);
+      color: var(--ink);
+    }
+
+    textarea { min-height: 120px; resize: vertical; }
+
+    .doc-preview {
+      min-height: 360px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 30px;
+      box-shadow: var(--shadow);
+    }
+
+    .doc-preview h3 {
+      color: var(--gold);
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+      border-bottom: 2px solid var(--paper-2);
+      text-transform: uppercase;
+    }
+
+    .toast-stack {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 100;
+      display: grid;
+      gap: 10px;
+      width: min(380px, calc(100vw - 44px));
+    }
+
+    .toast {
+      color: var(--white);
+      background: var(--ink);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      box-shadow: var(--shadow-strong);
+      animation: toast-in .28s ease both;
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .mobile-menu {
+      display: none;
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed;
+        inset: 72px 14px auto 14px;
+        z-index: 30;
+        display: none;
+        height: auto;
+        max-height: calc(100vh - 100px);
+        border: 1px solid rgba(15, 13, 11, .08);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-strong);
+      }
+      .sidebar.open { display: block; }
+      .mobile-menu { display: inline-flex; }
+      .grid.stats, .grid.two, .grid.three, .form-grid { grid-template-columns: 1fr; }
+      .view-head { align-items: start; flex-direction: column; }
+    }
+
+    @media (max-width: 620px) {
+      .topbar { align-items: start; flex-direction: column; }
+      .top-actions { justify-content: flex-start; }
+      .content { padding: 22px 16px 48px; }
+      .indicator-main, .check-row { grid-template-columns: 1fr; }
+      .scan-zone { min-height: 260px; padding: 22px; }
+    }
+
+    @media print {
+      body { background: var(--white); }
+      .topbar, .sidebar, .toast-stack, .no-print { display: none !important; }
+      .layout { display: block; }
+      .content { width: 100%; padding: 0; }
+      .doc-preview { border: 0; box-shadow: none; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>EduConcret Certif PRO</strong>
+          <span>Audit Qualiopi · IA · Preuves</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="btn btn-ghost" href="https://educoncret.net/">Accueil EduConcret</a>
+        <button class="btn btn-ghost mobile-menu" id="menuButton" type="button" aria-expanded="false">Menu</button>
+        <button class="btn btn-ghost" type="button" id="exportButton">Exporter</button>
+        <label class="btn btn-ghost" for="importFile">Importer</label>
+        <input id="importFile" type="file" accept="application/json" hidden>
+        <button class="btn btn-primary" type="button" data-view="licence">Activer la licence</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar" aria-label="Navigation des modules">
+        <p class="nav-group-label">Modules</p>
+        <button class="nav-item active" type="button" data-view="dashboard">📊 Dashboard global</button>
+        <button class="nav-item" type="button" data-view="audit">✅ Audit Qualiopi</button>
+        <button class="nav-item" type="button" data-view="ia">🤖 DeepScan IA</button>
+        <button class="nav-item" type="button" data-view="docs">📁 Générateur de preuves</button>
+        <button class="nav-item" type="button" data-view="settings">⚙️ Configuration</button>
+        <a class="nav-item" href="https://educoncret.net/" style="text-decoration:none;">← Retour accueil</a>
+      </aside>
+
+      <main class="content" id="view" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="true"></div>
+
+  <script>
+    const STORAGE_KEY = "educoncret-certif-pro-v1";
+
+    const defaultState = {
+      activeView: "dashboard",
+      score: 64,
+      documents: 142,
+      scans: 3,
+      company: {
+        name: "EduConcret Academy",
+        manager: "Jean Expert",
+        referent: "Sophie Qualité",
+        email: "contact@educoncret.net",
+        address: "Paris, France"
+      },
+      auditDate: new Date().toISOString().slice(0, 10),
+      indicators: [
+        {
+          id: "q1-1",
+          code: "Q1.1",
+          criterion: "Critère 1",
+          title: "Diffusion de l'offre",
+          description: "L'information au public doit être accessible, détaillée, vérifiable et actualisée.",
+          checks: [
+            { id: "q1-1-a", label: "Tarifs affichés ou modalités de devis précisées", done: true },
+            { id: "q1-1-b", label: "Délais d'accès à la formation mentionnés", done: false },
+            { id: "q1-1-c", label: "Indicateurs de résultats publics", done: false },
+            { id: "q1-1-d", label: "Objectifs et prérequis lisibles", done: true }
+          ]
+        },
+        {
+          id: "q2-2",
+          code: "Q2.2",
+          criterion: "Critère 2",
+          title: "Parcours handicap",
+          description: "L'organisme doit identifier les besoins spécifiques et mobiliser les acteurs compétents.",
+          checks: [
+            { id: "q2-2-a", label: "Référent handicap nommé et visible", done: false },
+            { id: "q2-2-b", label: "Procédure d'accueil et d'adaptation formalisée", done: false },
+            { id: "q2-2-c", label: "Partenaires AGEFIPH/FIPHFP identifiés", done: false },
+            { id: "q2-2-d", label: "Traces d'analyse des besoins conservées", done: true }
+          ]
+        },
+        {
+          id: "q3-1",
+          code: "Q3.1",
+          criterion: "Critère 3",
+          title: "Ingénierie pédagogique",
+          description: "Les prestations doivent être construites selon des objectifs opérationnels évaluables.",
+          checks: [
+            { id: "q3-1-a", label: "Objectifs opérationnels rédigés", done: true },
+            { id: "q3-1-b", label: "Prérequis identifiés", done: true },
+            { id: "q3-1-c", label: "Modalités d'évaluation décrites", done: true },
+            { id: "q3-1-d", label: "Adaptation des méthodes documentée", done: false }
+          ]
+        },
+        {
+          id: "q6-1",
+          code: "Q6.1",
+          criterion: "Critère 6",
+          title: "Veille réglementaire",
+          description: "La veille doit être organisée, exploitée et intégrée dans l'amélioration continue.",
+          checks: [
+            { id: "q6-1-a", label: "Sources de veille listées", done: true },
+            { id: "q6-1-b", label: "Fréquence de consultation définie", done: false },
+            { id: "q6-1-c", label: "Actions issues de la veille tracées", done: false },
+            { id: "q6-1-d", label: "Responsable de veille désigné", done: true }
+          ]
+        }
+      ],
+      scansLog: [
+        { name: "Programme formation digital.pdf", issues: 2, date: "2026-04-16" },
+        { name: "Livret accueil v2.docx", issues: 1, date: "2026-04-15" }
+      ],
+      generatedType: "livret"
+    };
+
+    let state = loadState();
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function loadState() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        return saved ? mergeState(defaultState, JSON.parse(saved)) : clone(defaultState);
+      } catch {
+        return clone(defaultState);
+      }
+    }
+
+    function mergeState(base, incoming) {
+      return { ...clone(base), ...incoming, company: { ...base.company, ...(incoming.company || {}) } };
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[char]));
+    }
+
+    function computeIndicatorScore(indicator) {
+      const done = indicator.checks.filter((check) => check.done).length;
+      return Math.round((done / indicator.checks.length) * 100);
+    }
+
+    function computeScore() {
+      const scores = state.indicators.map(computeIndicatorScore);
+      return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+    }
+
+    function countWarnings() {
+      return state.indicators.filter((indicator) => computeIndicatorScore(indicator) < 75).length;
+    }
+
+    function statusFor(score) {
+      if (score >= 85) return { label: "Conforme", className: "pill-green" };
+      if (score >= 60) return { label: "À renforcer", className: "pill-gold" };
+      return { label: "Critique", className: "pill-red" };
+    }
+
+    function setView(view) {
+      state.activeView = view;
+      saveState();
+      document.querySelectorAll("[data-view]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === view);
+      });
+      document.getElementById("sidebar").classList.remove("open");
+      document.getElementById("menuButton").setAttribute("aria-expanded", "false");
+      render();
+      document.getElementById("view").focus({ preventScroll: true });
+    }
+
+    function showToast(message, tone = "dark") {
+      const stack = document.getElementById("toastStack");
+      const toast = document.createElement("div");
+      toast.className = "toast";
+      toast.style.background = tone === "success" ? "var(--teal)" : tone === "danger" ? "var(--red)" : "var(--ink)";
+      toast.textContent = message;
+      stack.appendChild(toast);
+      setTimeout(() => toast.remove(), 3400);
+    }
+
+    function renderHeader(eyebrow, title, description, action = "") {
+      return `
+        <div class="view-head">
+          <div>
+            <p class="eyebrow">${escapeHtml(eyebrow)}</p>
+            <h1>${escapeHtml(title)}</h1>
+            ${description ? `<p class="muted" style="max-width:760px;margin-top:12px;">${escapeHtml(description)}</p>` : ""}
+          </div>
+          ${action}
+        </div>
+      `;
+    }
+
+    function renderDashboard() {
+      const score = computeScore();
+      const warnings = countWarnings();
+      const message = score >= 85 ? "Dossier robuste pour un audit." : score >= 60 ? "Base solide, mais plusieurs preuves restent à verrouiller." : "Risque de non-conformité majeure.";
+      return `
+        ${renderHeader("Pilotage de certification", "Dashboard global", "Suivi synthétique de votre conformité Qualiopi, des preuves et des anomalies détectées.")}
+        <section class="grid stats">
+          <article class="card hero-card">
+            <p class="metric-label">Indice de conformité</p>
+            <div class="metric-value">${score}%</div>
+            <p class="metric-note">${escapeHtml(message)}</p>
+          </article>
+          <article class="card">
+            <p class="metric-label">Preuves scannées</p>
+            <div class="metric-value">${state.documents}</div>
+            <p class="metric-note" style="color:var(--teal);">Archivées et suivies</p>
+          </article>
+          <article class="card">
+            <p class="metric-label">Anomalies ouvertes</p>
+            <div class="metric-value" style="color:var(--red);">${warnings}</div>
+            <p class="metric-note">Priorité audit</p>
+          </article>
+        </section>
+
+        <section class="grid two">
+          <article class="card">
+            <h2>Indicateurs prioritaires</h2>
+            <div class="risk-list">
+              ${state.indicators
+                .slice()
+                .sort((a, b) => computeIndicatorScore(a) - computeIndicatorScore(b))
+                .map(renderIndicator)
+                .join("")}
+            </div>
+          </article>
+          <article class="card">
+            <h2>Plan d'action immédiat</h2>
+            <div class="risk-list">
+              ${renderActionItem("Q1.1", "Ajouter les délais d'accès et indicateurs publics sur chaque page programme.")}
+              ${renderActionItem("Q2.2", "Formaliser une procédure d'accueil handicap avec référent et partenaires.")}
+              ${renderActionItem("Q6.1", "Prouver l'exploitation de la veille, pas seulement sa collecte.")}
+            </div>
+            <button class="btn btn-primary" style="margin-top:18px;" type="button" data-view="docs">Générer les preuves manquantes</button>
+          </article>
+        </section>
+      `;
+    }
+
+    function renderActionItem(code, text) {
+      return `
+        <div class="alert" style="border-left-color:var(--gold);background:#fffaf0;">
+          <strong>${escapeHtml(code)}</strong>
+          <p class="muted">${escapeHtml(text)}</p>
+        </div>
+      `;
+    }
+
+    function renderIndicator(indicator) {
+      const score = computeIndicatorScore(indicator);
+      const status = statusFor(score);
+      return `
+        <article class="card indicator" data-indicator="${indicator.id}">
+          <button class="indicator-main" type="button" data-toggle="${indicator.id}">
+            <div>
+              <div class="indicator-title">
+                <span class="code">${escapeHtml(indicator.code)}</span>
+                <span>${escapeHtml(indicator.title)}</span>
+                <span class="pill pill-blue">${escapeHtml(indicator.criterion)}</span>
+              </div>
+              <p class="muted" style="margin-top:6px;">${escapeHtml(indicator.description)}</p>
+              <div class="progress-track"><div class="progress-fill" style="--value:${score}%;"></div></div>
+            </div>
+            <span class="pill ${status.className}">${score}% · ${status.label}</span>
+          </button>
+          <div class="indicator-detail">
+            ${indicator.checks.map((check) => `
+              <label class="check-row">
+                <input type="checkbox" data-check="${check.id}" ${check.done ? "checked" : ""}>
+                <span>${escapeHtml(check.label)}</span>
+                <span class="pill ${check.done ? "pill-green" : "pill-red"}">${check.done ? "OK" : "Manquant"}</span>
+              </label>
+            `).join("")}
+          </div>
+        </article>
+      `;
+    }
+
+    function renderAudit() {
+      return `
+        ${renderHeader("Mode auditeur", "Audit Qualiopi", "Ouvrez chaque indicateur, cochez les preuves réellement disponibles et suivez le score global.")}
+        <div class="risk-list">
+          ${state.indicators.map(renderIndicator).join("")}
+        </div>
+      `;
+    }
+
+    function renderIA() {
+      const log = state.scansLog.map((item) => `
+        <div class="check-row">
+          <span>${escapeHtml(item.name)}</span>
+          <span class="muted">${escapeHtml(item.date)}</span>
+          <span class="pill ${item.issues ? "pill-red" : "pill-green"}">${item.issues} anomalie${item.issues > 1 ? "s" : ""}</span>
+        </div>
+      `).join("");
+
+      return `
+        ${renderHeader("DeepScan IA", "Analyse contradictoire des preuves", "Simulez l'analyse d'un programme, livret ou règlement. L'outil compare les contenus attendus aux zones de risque Qualiopi.")}
+        <section class="grid two">
+          <article class="scan-zone" id="scanZone">
+            <div class="scan-line"></div>
+            <div id="scanIdle">
+              <div style="font-size:4.8rem;margin-bottom:14px;">🛰️</div>
+              <h2>Déposer ou scanner une preuve</h2>
+              <p class="muted" style="margin:12px auto 22px;max-width:520px;">Glissez un fichier ici ou cliquez pour lancer une simulation d'analyse IA.</p>
+              <input type="file" id="scanFile" hidden>
+              <button class="btn btn-primary" type="button" id="scanButton">Lancer DeepScan</button>
+            </div>
+          </article>
+          <article class="card">
+            <h2>Rapport IA</h2>
+            <div id="scanReport" class="report">
+              <p class="muted">Aucune analyse en cours. Lancez un scan pour obtenir un rapport de contradiction.</p>
+            </div>
+          </article>
+        </section>
+        <section class="card" style="margin-top:18px;">
+          <h2>Historique des scans</h2>
+          <div class="risk-list">${log || "<p class='muted'>Aucun scan enregistré.</p>"}</div>
+        </section>
+      `;
+    }
+
+    function renderDocs() {
+      return `
+        ${renderHeader("Production documentaire", "Générateur de preuves", "Préparez des documents imprimables avec les informations de votre organisme.", `
+          <button class="btn btn-dark" type="button" id="printDoc">Imprimer la preuve</button>
+        `)}
+        <section class="grid two">
+          <article class="card no-print">
+            <h2>Données de génération</h2>
+            <div class="form-grid" style="margin-top:18px;">
+              ${inputField("company.name", "Nom de l'organisme", state.company.name)}
+              ${inputField("company.manager", "Responsable", state.company.manager)}
+              ${inputField("company.referent", "Référent handicap", state.company.referent)}
+              ${inputField("company.email", "Email", state.company.email)}
+            </div>
+            <div style="margin-top:16px;">
+              <label for="docType">Type de document</label>
+              <select id="docType">
+                <option value="livret" ${state.generatedType === "livret" ? "selected" : ""}>Livret d'accueil</option>
+                <option value="certificat" ${state.generatedType === "certificat" ? "selected" : ""}>Certificat de réalisation</option>
+                <option value="handicap" ${state.generatedType === "handicap" ? "selected" : ""}>Procédure handicap</option>
+                <option value="veille" ${state.generatedType === "veille" ? "selected" : ""}>Plan de veille</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" style="margin-top:18px;width:100%;" type="button" id="generateDoc">Mettre à jour l'aperçu</button>
+          </article>
+          <article class="doc-preview" id="docPreview">
+            ${renderDocument()}
+          </article>
+        </section>
+      `;
+    }
+
+    function inputField(path, label, value) {
+      return `
+        <div>
+          <label>${escapeHtml(label)}</label>
+          <input type="text" data-field="${escapeHtml(path)}" value="${escapeHtml(value)}">
+        </div>
+      `;
+    }
+
+    function renderDocument() {
+      const company = state.company;
+      const titleMap = {
+        livret: "Livret d'accueil",
+        certificat: "Certificat de réalisation",
+        handicap: "Procédure d'accueil handicap",
+        veille: "Plan de veille réglementaire"
+      };
+      const bodyMap = {
+        livret: `
+          <p>Ce livret présente les conditions d'accueil, les moyens pédagogiques, les modalités d'évaluation et les contacts utiles pour les apprenants de ${escapeHtml(company.name)}.</p>
+          <h4>Accessibilité</h4>
+          <p>Référent handicap : <strong>${escapeHtml(company.referent)}</strong>. Chaque situation spécifique fait l'objet d'une analyse préalable afin de proposer des aménagements raisonnables.</p>
+        `,
+        certificat: `
+          <p>Nous attestons que l'action de formation a été réalisée selon les modalités prévues et que les éléments de présence, d'évaluation et de satisfaction sont archivés.</p>
+          <p>Responsable de l'organisme : <strong>${escapeHtml(company.manager)}</strong>.</p>
+        `,
+        handicap: `
+          <p>La procédure prévoit l'identification du besoin, l'échange confidentiel avec l'apprenant, la recherche d'aménagements et, si nécessaire, la mobilisation de partenaires spécialisés.</p>
+          <p>Référent handicap : <strong>${escapeHtml(company.referent)}</strong>.</p>
+        `,
+        veille: `
+          <p>La veille couvre les évolutions réglementaires, pédagogiques, métiers et handicap. Les informations utiles sont analysées puis transformées en actions d'amélioration continue.</p>
+          <p>Responsable de veille : <strong>${escapeHtml(company.manager)}</strong>.</p>
+        `
+      };
+
+      return `
+        <h3>${titleMap[state.generatedType]}</h3>
+        <p><strong>Organisme :</strong> ${escapeHtml(company.name)}</p>
+        <p><strong>Email :</strong> ${escapeHtml(company.email)}</p>
+        <p><strong>Date :</strong> ${escapeHtml(state.auditDate)}</p>
+        <hr style="border:0;border-top:1px solid var(--line);margin:22px 0;">
+        ${bodyMap[state.generatedType]}
+        <h4 style="margin-top:26px;color:var(--teal);">Traçabilité Qualiopi</h4>
+        <p>Document généré par EduConcret Certif PRO. À compléter avec les preuves réelles : signatures, feuilles d'émargement, évaluations, échanges et archivage.</p>
+      `;
+    }
+
+    function renderSettings() {
+      return `
+        ${renderHeader("Configuration", "Paramètres organisme", "Ces informations alimentent le dashboard et les documents générés.")}
+        <section class="card">
+          <div class="form-grid">
+            ${inputField("company.name", "Nom de l'organisme", state.company.name)}
+            ${inputField("company.manager", "Responsable", state.company.manager)}
+            ${inputField("company.referent", "Référent handicap", state.company.referent)}
+            ${inputField("company.email", "Email", state.company.email)}
+            ${inputField("company.address", "Adresse", state.company.address)}
+            ${inputField("auditDate", "Date audit cible", state.auditDate)}
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;">
+            <button class="btn btn-primary" type="button" id="saveSettings">Sauvegarder</button>
+            <button class="btn btn-danger" type="button" id="resetData">Réinitialiser</button>
+          </div>
+        </section>
+      `;
+    }
+
+    function renderLicence() {
+      return `
+        ${renderHeader("Licence", "Activer EduConcret Certif PRO", "Cette démonstration est autonome. La licence peut servir à brancher ensuite un espace client, des modèles premium ou une vraie analyse documentaire.")}
+        <section class="grid three">
+          <article class="card">
+            <span class="pill pill-blue">Starter</span>
+            <h2 style="margin-top:14px;">Audit Express</h2>
+            <p class="muted">Tableau de bord, check-lists et génération de preuves.</p>
+          </article>
+          <article class="card hero-card">
+            <span class="pill pill-gold">Pro</span>
+            <h2 style="margin-top:14px;">DeepScan IA</h2>
+            <p class="metric-note">Analyse documentaire, rapports et priorisation des risques.</p>
+          </article>
+          <article class="card">
+            <span class="pill pill-green">Expert</span>
+            <h2 style="margin-top:14px;">Accompagnement</h2>
+            <p class="muted">Préparation audit, structuration Qualiopi et amélioration continue.</p>
+          </article>
+        </section>
+      `;
+    }
+
+    function render() {
+      const views = {
+        dashboard: renderDashboard,
+        audit: renderAudit,
+        ia: renderIA,
+        docs: renderDocs,
+        settings: renderSettings,
+        licence: renderLicence
+      };
+      document.getElementById("view").innerHTML = (views[state.activeView] || views.dashboard)();
+      bindViewEvents();
+    }
+
+    function bindViewEvents() {
+      document.querySelectorAll("#view [data-view]").forEach((button) => {
+        button.addEventListener("click", () => setView(button.dataset.view));
+      });
+
+      document.querySelectorAll("[data-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+          button.closest(".indicator").classList.toggle("open");
+        });
+      });
+
+      document.querySelectorAll("[data-check]").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => updateCheck(checkbox.dataset.check, checkbox.checked));
+      });
+
+      document.querySelectorAll("[data-field]").forEach((field) => {
+        field.addEventListener("input", () => updateField(field.dataset.field, field.value, false));
+      });
+
+      const scanButton = document.getElementById("scanButton");
+      if (scanButton) scanButton.addEventListener("click", startScan);
+
+      const scanZone = document.getElementById("scanZone");
+      if (scanZone) {
+        scanZone.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          scanZone.classList.add("dragover");
+        });
+        scanZone.addEventListener("dragleave", () => scanZone.classList.remove("dragover"));
+        scanZone.addEventListener("drop", (event) => {
+          event.preventDefault();
+          scanZone.classList.remove("dragover");
+          startScan(event.dataTransfer.files[0]?.name);
+        });
+      }
+
+      const generateDoc = document.getElementById("generateDoc");
+      if (generateDoc) generateDoc.addEventListener("click", () => {
+        state.generatedType = document.getElementById("docType").value;
+        saveState();
+        document.getElementById("docPreview").innerHTML = renderDocument();
+        showToast("Aperçu de preuve mis à jour.", "success");
+      });
+
+      const printDoc = document.getElementById("printDoc");
+      if (printDoc) printDoc.addEventListener("click", () => window.print());
+
+      const saveSettings = document.getElementById("saveSettings");
+      if (saveSettings) saveSettings.addEventListener("click", () => {
+        saveState();
+        showToast("Configuration sauvegardée.", "success");
+      });
+
+      const resetData = document.getElementById("resetData");
+      if (resetData) resetData.addEventListener("click", () => {
+        if (!confirm("Réinitialiser toutes les données locales ?")) return;
+        state = clone(defaultState);
+        saveState();
+        render();
+        showToast("Données réinitialisées.", "danger");
+      });
+    }
+
+    function updateCheck(checkId, done) {
+      for (const indicator of state.indicators) {
+        const check = indicator.checks.find((item) => item.id === checkId);
+        if (check) {
+          check.done = done;
+          saveState();
+          render();
+          showToast(`${indicator.code} mis à jour.`, "success");
+          return;
+        }
+      }
+    }
+
+    function updateField(path, value, rerender = true) {
+      const parts = path.split(".");
+      let target = state;
+      while (parts.length > 1) target = target[parts.shift()];
+      target[parts[0]] = value;
+      saveState();
+      if (rerender) render();
+    }
+
+    function startScan(fileName = "Programme formation digital.pdf") {
+      const scanZone = document.getElementById("scanZone");
+      const report = document.getElementById("scanReport");
+      scanZone.classList.add("scanning");
+      report.innerHTML = "<p class='muted'>Analyse sémantique en cours...</p>";
+
+      setTimeout(() => {
+        scanZone.classList.remove("scanning");
+        const date = new Date().toISOString().slice(0, 10);
+        state.scans += 1;
+        state.documents += 1;
+        state.scansLog.unshift({ name: fileName, issues: 2, date });
+        saveState();
+        report.innerHTML = `
+          <div class="alert">
+            <h3>Deux failles critiques détectées</h3>
+            <p><strong>Q1.1 :</strong> le document ne mentionne pas clairement les délais d'accès à la formation.</p>
+            <p><strong>Q2.2 :</strong> le référent handicap n'est pas visible dans le parcours apprenant.</p>
+          </div>
+          <button class="btn btn-primary" type="button" data-view="docs">Corriger avec le générateur</button>
+        `;
+        bindViewEvents();
+        showToast("DeepScan IA a identifié 2 failles critiques.", "danger");
+      }, 1800);
+    }
+
+    document.getElementById("menuButton").addEventListener("click", () => {
+      const sidebar = document.getElementById("sidebar");
+      const isOpen = sidebar.classList.toggle("open");
+      document.getElementById("menuButton").setAttribute("aria-expanded", String(isOpen));
+    });
+
+    document.querySelectorAll(".nav-item, .top-actions [data-view]").forEach((button) => {
+      button.addEventListener("click", () => setView(button.dataset.view));
+    });
+
+    document.getElementById("exportButton").addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `educoncret-certif-pro-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast("Données exportées.", "success");
+    });
+
+    document.getElementById("importFile").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const imported = JSON.parse(await file.text());
+        state = mergeState(defaultState, imported);
+        saveState();
+        render();
+        showToast("Données importées.", "success");
+      } catch {
+        showToast("Import impossible : fichier JSON invalide.", "danger");
+      }
+      event.target.value = "";
+    });
+
+    render();
+  </script>
+</body>
+</html>

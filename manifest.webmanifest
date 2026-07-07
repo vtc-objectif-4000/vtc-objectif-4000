@@ -1,0 +1,19 @@
+{
+  "name": "EduConcret - Moctar Touré",
+  "short_name": "EduConcret",
+  "description": "Ingénierie pédagogique, orientation et accompagnement de projet.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f3ed",
+  "theme_color": "#0e0c0a",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
