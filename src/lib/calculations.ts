@@ -1974,6 +1974,7 @@ export function buildTravelCalibrations(trips: TripRecord[]): TravelCalibration[
       timeSlot: TimeSlot;
       minutesPerKmTotal: number;
       approachMinutesPerKmTotal: number;
+      approachSampleCount: number;
       waitMinutesTotal: number;
       sampleCount: number;
       lastUpdated: string;
@@ -1985,8 +1986,15 @@ export function buildTravelCalibrations(trips: TripRecord[]): TravelCalibration[
       continue;
     }
 
-    const fromZone = normalizeZoneName(trip.pickupZone || trip.zone);
-    const toZone = normalizeZoneName(trip.dropoffZone || trip.zone);
+    const fromZoneRaw = trip.pickupZone.trim();
+    const toZoneRaw = trip.dropoffZone.trim();
+
+    if (!fromZoneRaw || !toZoneRaw) {
+      continue;
+    }
+
+    const fromZone = normalizeZoneName(fromZoneRaw);
+    const toZone = normalizeZoneName(toZoneRaw);
     const dayOfWeek = getDayOfWeekFromDate(trip.date);
     const timeSlot = trip.timeSlot || getTimeSlotFromTime(trip.startTime);
     const key = getCalibrationKey(fromZone, toZone, dayOfWeek, timeSlot, trip.zoneType);
@@ -1997,13 +2005,17 @@ export function buildTravelCalibrations(trips: TripRecord[]): TravelCalibration[
       timeSlot,
       minutesPerKmTotal: 0,
       approachMinutesPerKmTotal: 0,
+      approachSampleCount: 0,
       waitMinutesTotal: 0,
       sampleCount: 0,
       lastUpdated: trip.createdAt,
     };
 
     existing.minutesPerKmTotal += trip.tripMinutes / trip.tripKm;
-    existing.approachMinutesPerKmTotal += safeDivide(trip.approachMinutes, trip.approachKm);
+    if (trip.approachKm > 0 && trip.approachMinutes > 0) {
+      existing.approachMinutesPerKmTotal += trip.approachMinutes / trip.approachKm;
+      existing.approachSampleCount += 1;
+    }
     existing.waitMinutesTotal += trip.waitMinutes;
     existing.sampleCount += 1;
     existing.lastUpdated = trip.createdAt > existing.lastUpdated ? trip.createdAt : existing.lastUpdated;
@@ -2019,7 +2031,9 @@ export function buildTravelCalibrations(trips: TripRecord[]): TravelCalibration[
     sampleCount: group.sampleCount,
     averageMinutesPerKm: roundTo(group.minutesPerKmTotal / group.sampleCount, 2),
     averageApproachMinutesPerKm: roundTo(
-      group.approachMinutesPerKmTotal / group.sampleCount,
+      group.approachSampleCount > 0
+        ? safeDivide(group.approachMinutesPerKmTotal, group.approachSampleCount)
+        : 3,
       2,
     ),
     averageWaitMinutes: roundTo(group.waitMinutesTotal / group.sampleCount, 2),
@@ -2040,6 +2054,17 @@ export function estimateTravelFromHistory(
     tripKm: number;
   },
 ): TravelEstimate {
+  if (!params.pickupZone.trim() || !params.dropoffZone.trim() || params.tripKm <= 0) {
+    return {
+      approachMinutes: roundTo(params.approachKm * 3),
+      tripMinutes: roundTo(params.tripKm * 5),
+      totalMinutes: roundTo(params.approachKm * 3 + params.tripKm * 5),
+      sampleCount: 0,
+      confidenceLevel: "faible",
+      message: "Renseignez les zones et les kilomètres pour proposer une estimation.",
+    };
+  }
+
   const calibrations = buildTravelCalibrations(trips);
   const dayOfWeek = getDayOfWeekFromDate(params.date);
   const timeSlot = getTimeSlotFromTime(params.time);
@@ -2196,9 +2221,11 @@ export function calculateQuoteMetrics(
     estimatedNetHourly: roundTo(estimatedNetHourly),
     decision,
     warning:
-      decision === "trop bas"
-        ? `Prix trop bas. Minimum conseillé : ${roundTo(roundedPriceTtc)} €`
-        : metrics.decisionReason,
+      decision === "rentable"
+        ? "Ce devis semble rentable selon les coûts du véhicule."
+        : decision === "limite"
+          ? "Prix limite : gardez une marge si le trajet s’allonge."
+          : `Prix trop bas. Minimum conseillé : ${roundTo(roundedPriceTtc)} €`,
   };
 }
 
@@ -2286,7 +2313,13 @@ export function calculateZoneStats(trips: TripRecord[], month?: string): ZoneSta
   const filteredTrips = month ? trips.filter((trip) => trip.month === month) : trips;
 
   for (const trip of filteredTrips) {
-    const zoneName = normalizeZoneName(trip.pickupZone || trip.zone);
+    const zoneRaw = (trip.pickupZone || trip.zone).trim();
+
+    if (!zoneRaw) {
+      continue;
+    }
+
+    const zoneName = normalizeZoneName(zoneRaw);
     const id = `${zoneName.toLowerCase()}|${trip.pickupCity.toLowerCase()}|${trip.zoneType}`;
     const existing =
       groups.get(id) ??
@@ -2494,7 +2527,8 @@ export function buildMonthlyCsv(trips: TripRecord[], month: string): string {
         item.fromZone.toLowerCase() === normalizeZoneName(trip.pickupZone || trip.zone).toLowerCase() &&
         item.toZone.toLowerCase() === normalizeZoneName(trip.dropoffZone || trip.zone).toLowerCase() &&
         item.dayOfWeek === getDayOfWeekFromDate(trip.date) &&
-        item.timeSlot === trip.timeSlot,
+        item.timeSlot === trip.timeSlot &&
+        item.id.endsWith(`|${trip.zoneType}`),
     );
 
     return [
@@ -2572,7 +2606,12 @@ export function buildExportSnapshot(
   reminderEntries: ReminderEntry[],
   trips: TripRecord[],
 ): AppSnapshot {
-  const currentMonth = createTimestamp().slice(0, 7);
+  const exportMonths = Array.from(
+    new Set([
+      ...trips.map((trip) => trip.month),
+      ...expenses.map((expense) => getMonthFromDate(expense.date)),
+    ]),
+  ).filter(Boolean);
 
   return {
     version: 4,
@@ -2585,7 +2624,7 @@ export function buildExportSnapshot(
     chargeEntries,
     quoteEntries,
     reminderEntries,
-    workDaySummaries: buildWorkDaySummaries(trips, expenses, currentMonth),
+    workDaySummaries: exportMonths.flatMap((month) => buildWorkDaySummaries(trips, expenses, month)),
     zoneStats: calculateZoneStats(trips),
     travelCalibrations: buildTravelCalibrations(trips),
     trips,

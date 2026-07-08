@@ -360,6 +360,7 @@ export async function clearAllData(): Promise<void> {
   const database = await openDatabase();
   const transaction = database.transaction(
     [
+      LEGACY_SETTINGS_STORE,
       META_STORE,
       VEHICLES_STORE,
       PLATFORMS_STORE,
@@ -373,6 +374,7 @@ export async function clearAllData(): Promise<void> {
     "readwrite",
   );
 
+  await requestToPromise(transaction.objectStore(LEGACY_SETTINGS_STORE).clear());
   await requestToPromise(transaction.objectStore(META_STORE).clear());
   await requestToPromise(transaction.objectStore(VEHICLES_STORE).clear());
   await requestToPromise(transaction.objectStore(PLATFORMS_STORE).clear());

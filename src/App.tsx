@@ -224,8 +224,25 @@ function isSnapshotLike(value: unknown): value is AppSnapshot {
     return false;
   }
 
+  const candidate = value as Record<string, unknown>;
+  const hasRecognizedShape =
+    "globalSettings" in candidate ||
+    "settings" in candidate ||
+    Array.isArray(candidate.vehicles) ||
+    Array.isArray(candidate.platforms) ||
+    Array.isArray(candidate.trips) ||
+    Array.isArray(candidate.expenses) ||
+    Array.isArray(candidate.fuelEntries) ||
+    Array.isArray(candidate.chargeEntries) ||
+    Array.isArray(candidate.quoteEntries) ||
+    Array.isArray(candidate.reminderEntries);
+
+  if (!hasRecognizedShape) {
+    return false;
+  }
+
   const normalized = normalizeLegacyOrCurrentSnapshot(value);
-  return Array.isArray(normalized.trips) && Array.isArray(normalized.vehicles);
+  return Array.isArray(normalized.trips) && normalized.vehicles.length > 0;
 }
 
 function getVehicleLabel(vehicle: VehicleProfile): string {
