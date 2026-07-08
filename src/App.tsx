@@ -22,6 +22,8 @@ import {
   createFuelEntry,
   createPlatformProfile,
   createQuoteEntry,
+  createRepairEntry,
+  createRepairPartEntry,
   createReminderEntry,
   createTimestamp,
   createTripInput,
@@ -48,6 +50,8 @@ import {
   deleteFuelEntry,
   deletePlatformProfile,
   deleteQuoteEntry,
+  deleteRepairEntry,
+  deleteRepairPartEntry,
   deleteReminderEntry,
   deleteTripsForMonth,
   deleteVehicleProfile,
@@ -60,6 +64,8 @@ import {
   saveGlobalSettings,
   savePlatformProfile,
   saveQuoteEntry,
+  saveRepairEntry,
+  saveRepairPartEntry,
   saveReminderEntry,
   saveTrip,
   saveVehicleProfile,
@@ -88,6 +94,12 @@ import {
   QUOTE_STATUS_OPTIONS,
   QUOTE_TRIP_TYPE_OPTIONS,
   QuoteEntry,
+  REPAIR_CATEGORY_OPTIONS,
+  REPAIR_PART_STATUS_OPTIONS,
+  REPAIR_PRIORITY_OPTIONS,
+  REPAIR_STATUS_OPTIONS,
+  RepairEntry,
+  RepairPartEntry,
   REMINDER_TRIGGER_OPTIONS,
   REMINDER_TYPE_OPTIONS,
   ReminderEntry,
@@ -234,6 +246,8 @@ function isSnapshotLike(value: unknown): value is AppSnapshot {
     Array.isArray(candidate.expenses) ||
     Array.isArray(candidate.fuelEntries) ||
     Array.isArray(candidate.chargeEntries) ||
+    Array.isArray(candidate.repairEntries) ||
+    Array.isArray(candidate.repairPartEntries) ||
     Array.isArray(candidate.quoteEntries) ||
     Array.isArray(candidate.reminderEntries);
 
@@ -265,6 +279,43 @@ function getFilterLabel(value: FilterValue, fallback: string): string {
   return value === "all" ? fallback : value;
 }
 
+function isRepairClosed(status: RepairEntry["status"]): boolean {
+  return status === "Terminé" || status === "Annulé";
+}
+
+function calculateRepairPartsTotal(parts: RepairPartEntry[]): number {
+  return parts.reduce((sum, part) => sum + (part.amountTtc || 0), 0);
+}
+
+function syncRepairTotals(repair: RepairEntry, parts: RepairPartEntry[]): RepairEntry {
+  const partsTotalTtc = calculateRepairPartsTotal(parts);
+  return {
+    ...repair,
+    partsTotalTtc,
+    totalRepairTtc: partsTotalTtc + repair.laborTotalTtc + repair.otherFeesTtc,
+  };
+}
+
+function getExpenseCategoryFromRepairCategory(category: RepairEntry["category"]): ExpenseEntry["category"] {
+  if (category === "Moteur") {
+    return "Moteur";
+  }
+
+  if (category === "Vidange") {
+    return "Vidange";
+  }
+
+  if (category === "Pneus") {
+    return "Pneus";
+  }
+
+  if (category === "Freins") {
+    return "Freins";
+  }
+
+  return "Réparation";
+}
+
 export default function App() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -278,6 +329,8 @@ export default function App() {
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [fuelEntries, setFuelEntries] = useState<FuelEntry[]>([]);
   const [chargeEntries, setChargeEntries] = useState<ChargeEntry[]>([]);
+  const [repairEntries, setRepairEntries] = useState<RepairEntry[]>([]);
+  const [repairPartEntries, setRepairPartEntries] = useState<RepairPartEntry[]>([]);
   const [quoteEntries, setQuoteEntries] = useState<QuoteEntry[]>([]);
   const [reminderEntries, setReminderEntries] = useState<ReminderEntry[]>([]);
   const [trips, setTrips] = useState<TripRecord[]>([]);
@@ -296,10 +349,15 @@ export default function App() {
   const [quoteDraft, setQuoteDraft] = useState<QuoteEntry>(
     createQuoteEntry({ plannedDate: getLocalIsoDate() }),
   );
+  const [repairDraft, setRepairDraft] = useState<RepairEntry>(
+    createRepairEntry({ plannedDate: getLocalIsoDate() }),
+  );
+  const [repairPartDraft, setRepairPartDraft] = useState<RepairPartEntry>(createRepairPartEntry());
   const [reminderDraft, setReminderDraft] = useState<ReminderEntry>(createReminderEntry());
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(getLocalIsoDate());
   const [selectedVehicleEditorId, setSelectedVehicleEditorId] = useState<string | null>(null);
   const [selectedPlatformEditorId, setSelectedPlatformEditorId] = useState<string | null>(null);
+  const [selectedRepairId, setSelectedRepairId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -311,6 +369,15 @@ export default function App() {
     const sortedExpenses = sortByUpdatedAtDesc(data.expenses);
     const sortedFuelEntries = sortByUpdatedAtDesc(data.fuelEntries);
     const sortedChargeEntries = sortByUpdatedAtDesc(data.chargeEntries);
+    const sortedRepairEntries = sortByUpdatedAtDesc(data.repairEntries);
+    const sortedRepairPartEntries = [...data.repairPartEntries].sort((a, b) => {
+      const repairCompare = a.repairId.localeCompare(b.repairId);
+      if (repairCompare !== 0) {
+        return repairCompare;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
     const sortedQuoteEntries = sortByUpdatedAtDesc(data.quoteEntries);
     const sortedReminderEntries = sortByUpdatedAtDesc(data.reminderEntries);
     const sortedTrips = sortTripsDescending(data.trips);
@@ -320,6 +387,8 @@ export default function App() {
     setExpenses(sortedExpenses);
     setFuelEntries(sortedFuelEntries);
     setChargeEntries(sortedChargeEntries);
+    setRepairEntries(sortedRepairEntries);
+    setRepairPartEntries(sortedRepairPartEntries);
     setQuoteEntries(sortedQuoteEntries);
     setReminderEntries(sortedReminderEntries);
     setTrips(sortedTrips);
@@ -363,6 +432,40 @@ export default function App() {
       vehicleProfileId: activeVehicle?.id ?? current.vehicleProfileId,
       costMode: activeVehicle?.costMode ?? current.costMode,
     }));
+    setSelectedRepairId((current) => {
+      if (current && sortedRepairEntries.some((repair) => repair.id === current)) {
+        return current;
+      }
+
+      return (
+        sortedRepairEntries.find((repair) => repair.vehicleId === activeVehicle?.id)?.id ??
+        sortedRepairEntries[0]?.id ??
+        null
+      );
+    });
+    setRepairDraft((current) => {
+      const currentRepair =
+        current.id && sortedRepairEntries.some((repair) => repair.id === current.id)
+          ? sortedRepairEntries.find((repair) => repair.id === current.id) ?? null
+          : null;
+
+      if (currentRepair) {
+        return currentRepair;
+      }
+
+      return createRepairEntry({
+        vehicleId: activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID,
+        odometer: activeVehicle?.currentMileage ?? 0,
+        plannedDate: getLocalIsoDate(),
+      });
+    });
+    setRepairPartDraft((current) => {
+      if (current.id && sortedRepairPartEntries.some((part) => part.id === current.id)) {
+        return sortedRepairPartEntries.find((part) => part.id === current.id) ?? current;
+      }
+
+      return createRepairPartEntry();
+    });
     setReminderDraft((current) => ({
       ...current,
       vehicleProfileId: activeVehicle?.id ?? current.vehicleProfileId,
@@ -537,6 +640,25 @@ export default function App() {
           status: getReminderDisplayStatus(reminder, activeVehicle),
         }))
     : [];
+  const activeVehicleRepairs = activeVehicle
+    ? repairEntries.filter((repair) => repair.vehicleId === activeVehicle.id)
+    : [];
+  const repairDraftPreview = syncRepairTotals(
+    repairDraft,
+    repairPartEntries.filter((part) => part.repairId === repairDraft.id),
+  );
+  const selectedRepair =
+    activeVehicleRepairs.find((repair) => repair.id === selectedRepairId) ??
+    activeVehicleRepairs[0] ??
+    null;
+  const selectedRepairParts = selectedRepair
+    ? repairPartEntries.filter((part) => part.repairId === selectedRepair.id)
+    : [];
+  const selectedRepairVehicleLabel = selectedRepair
+    ? getVehicleLabel(
+        vehicles.find((vehicle) => vehicle.id === selectedRepair.vehicleId) ?? activeVehicle ?? vehicleDraft,
+      )
+    : "";
   const quoteVehicle =
     vehicles.find((vehicle) => vehicle.id === quoteDraft.vehicleProfileId) ?? activeVehicle;
   const quotePreview =
@@ -665,6 +787,23 @@ export default function App() {
     }));
   }
 
+  function updateRepairDraft<K extends keyof RepairEntry>(field: K, value: RepairEntry[K]) {
+    setRepairDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function updateRepairPartDraft<K extends keyof RepairPartEntry>(
+    field: K,
+    value: RepairPartEntry[K],
+  ) {
+    setRepairPartDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
   function updateReminderDraft<K extends keyof ReminderEntry>(
     field: K,
     value: ReminderEntry[K],
@@ -678,6 +817,27 @@ export default function App() {
   async function persistGlobalSettings(nextSettings: GlobalSettings) {
     await saveGlobalSettings(nextSettings);
     setGlobalSettings(nextSettings);
+  }
+
+  function startNewRepair(vehicleId = activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID) {
+    const vehicle = vehicles.find((item) => item.id === vehicleId) ?? activeVehicle;
+    setRepairDraft(
+      createRepairEntry({
+        vehicleId,
+        odometer: vehicle?.currentMileage ?? 0,
+        plannedDate: getLocalIsoDate(),
+      }),
+    );
+    setSelectedRepairId(null);
+    setRepairPartDraft(createRepairPartEntry());
+  }
+
+  function startNewRepairPart(repairId = selectedRepair?.id ?? "") {
+    setRepairPartDraft(
+      createRepairPartEntry({
+        repairId,
+      }),
+    );
   }
 
   async function handleSetActiveVehicle(vehicleId: string) {
@@ -706,6 +866,17 @@ export default function App() {
       vehicleProfileId: vehicleId,
       costMode: nextActiveVehicle?.costMode ?? current.costMode,
     }));
+    const nextActiveRepair = repairEntries.find((repair) => repair.vehicleId === vehicleId) ?? null;
+    setSelectedRepairId(nextActiveRepair?.id ?? null);
+    setRepairDraft(
+      nextActiveRepair ??
+        createRepairEntry({
+          vehicleId,
+          odometer: nextActiveVehicle?.currentMileage ?? 0,
+          plannedDate: getLocalIsoDate(),
+        }),
+    );
+    setRepairPartDraft(createRepairPartEntry({ repairId: nextActiveRepair?.id ?? "" }));
     setReminderDraft((current) => ({ ...current, vehicleProfileId: vehicleId }));
   }
 
@@ -915,6 +1086,261 @@ export default function App() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function editRepair(repair: RepairEntry) {
+    setSelectedRepairId(repair.id);
+    setRepairDraft(repair);
+    setRepairPartDraft(
+      createRepairPartEntry({
+        repairId: repair.id,
+      }),
+    );
+  }
+
+  function editRepairPart(part: RepairPartEntry) {
+    setSelectedRepairId(part.repairId);
+    setRepairPartDraft(part);
+  }
+
+  async function handleSaveRepair() {
+    if (!repairDraft.vehicleId) {
+      setNotice({ tone: "warning", message: "Sélectionnez le véhicule concerné par la réparation." });
+      return;
+    }
+
+    if (!repairDraft.title.trim()) {
+      setNotice({ tone: "warning", message: "Renseignez au moins un nom de réparation." });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const relatedParts = repairPartEntries.filter((part) => part.repairId === repairDraft.id);
+      const entry = cloneWithMeta(syncRepairTotals(repairDraft, relatedParts));
+      await saveRepairEntry(entry);
+
+      const matchingVehicle = vehicles.find((vehicle) => vehicle.id === entry.vehicleId);
+      if (
+        matchingVehicle &&
+        entry.isBlocking &&
+        !isRepairClosed(entry.status) &&
+        matchingVehicle.status !== "En panne" &&
+        matchingVehicle.status !== "En réparation"
+      ) {
+        await saveVehicleProfile(
+          cloneWithMeta({
+            ...matchingVehicle,
+            status: "En réparation",
+          }),
+        );
+      }
+
+      await loadAllData();
+      setSelectedRepairId(entry.id);
+      setRepairDraft(entry);
+      setRepairPartDraft(createRepairPartEntry({ repairId: entry.id }));
+      setNotice({ tone: "success", message: "Réparation enregistrée." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Impossible d'enregistrer la réparation.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteRepair(repairId: string) {
+    const repair = repairEntries.find((entry) => entry.id === repairId);
+    if (!repair) {
+      return;
+    }
+
+    if (!window.confirm(`Supprimer la réparation "${repair.title || "Sans titre"}" ?`)) {
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      for (const part of repairPartEntries.filter((entry) => entry.repairId === repairId)) {
+        await deleteRepairPartEntry(part.id);
+      }
+
+      await deleteRepairEntry(repairId);
+      await loadAllData();
+
+      if (selectedRepairId === repairId) {
+        startNewRepair(repair.vehicleId);
+      }
+
+      setNotice({ tone: "success", message: "Réparation supprimée." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Impossible de supprimer la réparation.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveRepairPart() {
+    const repairId = repairPartDraft.repairId || selectedRepair?.id || "";
+
+    if (!repairId) {
+      setNotice({
+        tone: "warning",
+        message: "Enregistrez d’abord la réparation avant d’ajouter des pièces.",
+      });
+      return;
+    }
+
+    if (!repairPartDraft.name.trim()) {
+      setNotice({ tone: "warning", message: "Renseignez le nom de la pièce ou du frais associé." });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const entry: RepairPartEntry = {
+        ...repairPartDraft,
+        repairId,
+      };
+
+      await saveRepairPartEntry(entry);
+
+      const matchingRepair = repairEntries.find((repair) => repair.id === repairId);
+      if (matchingRepair) {
+        const updatedParts = [
+          ...repairPartEntries.filter((part) => part.repairId === repairId && part.id !== entry.id),
+          entry,
+        ];
+        await saveRepairEntry(cloneWithMeta(syncRepairTotals(matchingRepair, updatedParts)));
+      }
+
+      await loadAllData();
+      setSelectedRepairId(repairId);
+      setRepairPartDraft(createRepairPartEntry({ repairId }));
+      setNotice({ tone: "success", message: "Pièce enregistrée." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Impossible d'enregistrer la pièce.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteRepairPart(repairPartId: string) {
+    const repairPart = repairPartEntries.find((entry) => entry.id === repairPartId);
+    if (!repairPart) {
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await deleteRepairPartEntry(repairPartId);
+
+      const matchingRepair = repairEntries.find((repair) => repair.id === repairPart.repairId);
+      if (matchingRepair) {
+        const updatedParts = repairPartEntries.filter(
+          (part) => part.repairId === repairPart.repairId && part.id !== repairPartId,
+        );
+        await saveRepairEntry(cloneWithMeta(syncRepairTotals(matchingRepair, updatedParts)));
+      }
+
+      await loadAllData();
+      setSelectedRepairId(repairPart.repairId);
+      setRepairPartDraft(createRepairPartEntry({ repairId: repairPart.repairId }));
+      setNotice({ tone: "success", message: "Pièce supprimée." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Impossible de supprimer la pièce.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSetVehicleAvailableAfterRepair(repair: RepairEntry) {
+    const matchingVehicle = vehicles.find((vehicle) => vehicle.id === repair.vehicleId);
+    if (!matchingVehicle) {
+      setNotice({ tone: "warning", message: "Véhicule introuvable pour cette réparation." });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await saveVehicleProfile(
+        cloneWithMeta({
+          ...matchingVehicle,
+          status: "Actif",
+        }),
+      );
+      await loadAllData();
+      setNotice({ tone: "success", message: "Le véhicule est repassé en disponible." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Impossible de remettre le véhicule en service.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleCreateExpenseFromRepair(repair: RepairEntry) {
+    if (repair.status !== "Terminé") {
+      setNotice({
+        tone: "warning",
+        message: "La réparation doit être terminée avant de créer une dépense.",
+      });
+      return;
+    }
+
+    const relatedParts = repairPartEntries.filter((part) => part.repairId === repair.id);
+    const partsSummary = relatedParts
+      .map((part) => `${part.name} ${formatCurrency(part.amountTtc)}`)
+      .join(", ");
+
+    const comment = [
+      repair.description ? `Description : ${repair.description}` : "",
+      partsSummary ? `Pièces : ${partsSummary}` : "",
+      `Pièces TTC : ${formatCurrency(repair.partsTotalTtc)}`,
+      `Main-d'œuvre TTC : ${formatCurrency(repair.laborTotalTtc)}`,
+      `Autres frais TTC : ${formatCurrency(repair.otherFeesTtc)}`,
+      repair.mechanicName ? `Garage / mécanicien : ${repair.mechanicName}` : "",
+      repair.comment ? `Commentaire : ${repair.comment}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    setExpenseDraft(
+      createExpenseEntry({
+        date: repair.completedDate || repair.plannedDate || getLocalIsoDate(),
+        vehicleProfileId: repair.vehicleId,
+        category: getExpenseCategoryFromRepairCategory(repair.category),
+        amountTtc: repair.totalRepairTtc,
+        mileageAtExpense: repair.odometer,
+        comment: `${repair.title}\n${comment}`.trim(),
+      }),
+    );
+    setActiveTab("expenses");
+    setNotice({
+      tone: "success",
+      message: "La dépense a été préremplie à partir de la réparation.",
+    });
   }
 
   async function handleSaveExpense() {
@@ -3838,6 +4264,426 @@ export default function App() {
                   <button className="primary-button neutral" type="button" onClick={handleSaveVehicle} disabled={saving}>
                     {saving ? "Sauvegarde..." : "Enregistrer l’entretien"}
                   </button>
+
+                  <div className="group-card">
+                    <div className="section-heading">
+                      <div>
+                        <h3>Réparation véhicule</h3>
+                        <p className="section-copy">
+                          Saisie TTC uniquement pour les pièces, la main-d’œuvre et les autres frais.
+                        </p>
+                      </div>
+                      <button className="ghost-button" type="button" onClick={() => startNewRepair()}>
+                        Nouvelle réparation
+                      </button>
+                    </div>
+
+                    <div className="form-grid">
+                      <label className="field">
+                        <span>Véhicule concerné</span>
+                        <select
+                          value={repairDraft.vehicleId}
+                          onChange={(event) => updateRepairDraft("vehicleId", event.target.value)}
+                        >
+                          {vehicles.map((vehicle) => (
+                            <option key={vehicle.id} value={vehicle.id}>
+                              {getVehicleLabel(vehicle)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Nom de la réparation</span>
+                        <input
+                          type="text"
+                          value={repairDraft.title}
+                          onChange={(event) => updateRepairDraft("title", event.target.value)}
+                          placeholder="Changement moteur"
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Catégorie</span>
+                        <select
+                          value={repairDraft.category}
+                          onChange={(event) =>
+                            updateRepairDraft("category", event.target.value as RepairEntry["category"])
+                          }
+                        >
+                          {REPAIR_CATEGORY_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Statut</span>
+                        <select
+                          value={repairDraft.status}
+                          onChange={(event) =>
+                            updateRepairDraft("status", event.target.value as RepairEntry["status"])
+                          }
+                        >
+                          {REPAIR_STATUS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Priorité</span>
+                        <select
+                          value={repairDraft.priority}
+                          onChange={(event) =>
+                            updateRepairDraft("priority", event.target.value as RepairEntry["priority"])
+                          }
+                        >
+                          {REPAIR_PRIORITY_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Réparation bloquante</span>
+                        <select
+                          value={repairDraft.isBlocking ? "oui" : "non"}
+                          onChange={(event) => updateRepairDraft("isBlocking", event.target.value === "oui")}
+                        >
+                          <option value="non">Non</option>
+                          <option value="oui">Oui</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Kilométrage</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={repairDraft.odometer}
+                          onChange={(event) =>
+                            updateRepairDraft("odometer", Number(event.target.value) || 0)
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Kilométrage approximatif</span>
+                        <select
+                          value={repairDraft.odometerIsApproximate ? "oui" : "non"}
+                          onChange={(event) =>
+                            updateRepairDraft("odometerIsApproximate", event.target.value === "oui")
+                          }
+                        >
+                          <option value="non">Non</option>
+                          <option value="oui">Oui</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Garage ou mécanicien</span>
+                        <input
+                          type="text"
+                          value={repairDraft.mechanicName}
+                          onChange={(event) => updateRepairDraft("mechanicName", event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Date prévue</span>
+                        <input
+                          type="date"
+                          value={repairDraft.plannedDate}
+                          onChange={(event) => updateRepairDraft("plannedDate", event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Date réalisée</span>
+                        <input
+                          type="date"
+                          value={repairDraft.completedDate}
+                          onChange={(event) => updateRepairDraft("completedDate", event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Main-d’œuvre TTC</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={repairDraft.laborTotalTtc}
+                          onChange={(event) =>
+                            updateRepairDraft("laborTotalTtc", Number(event.target.value) || 0)
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Autres frais TTC</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={repairDraft.otherFeesTtc}
+                          onChange={(event) =>
+                            updateRepairDraft("otherFeesTtc", Number(event.target.value) || 0)
+                          }
+                        />
+                      </label>
+                      <label className="field field--full">
+                        <span>Description</span>
+                        <textarea
+                          rows={2}
+                          value={repairDraft.description}
+                          onChange={(event) => updateRepairDraft("description", event.target.value)}
+                        />
+                      </label>
+                      <label className="field field--full">
+                        <span>Commentaire</span>
+                        <textarea
+                          rows={2}
+                          value={repairDraft.comment}
+                          onChange={(event) => updateRepairDraft("comment", event.target.value)}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="metric-grid">
+                      <MetricCard label="Pièces TTC" value={formatCurrency(repairDraftPreview.partsTotalTtc)} />
+                      <MetricCard label="Main-d’œuvre TTC" value={formatCurrency(repairDraftPreview.laborTotalTtc)} />
+                      <MetricCard label="Autres frais TTC" value={formatCurrency(repairDraftPreview.otherFeesTtc)} />
+                      <MetricCard label="Total réparation TTC" value={formatCurrency(repairDraftPreview.totalRepairTtc)} />
+                    </div>
+
+                    {repairDraft.isBlocking && !isRepairClosed(repairDraft.status) ? (
+                      <p className="section-copy">Non disponible pour travailler tant que la réparation est ouverte.</p>
+                    ) : null}
+
+                    <div className="action-row">
+                      <button className="primary-button neutral" type="button" onClick={handleSaveRepair} disabled={saving}>
+                        {saving ? "Enregistrement..." : "Enregistrer la réparation"}
+                      </button>
+                      <button className="ghost-button" type="button" onClick={() => startNewRepair(repairDraft.vehicleId)}>
+                        Réinitialiser
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="group-card">
+                    <div className="section-heading">
+                      <div>
+                        <h3>Main-d’œuvre & pièces</h3>
+                        <p className="section-copy">
+                          {selectedRepair
+                            ? `${selectedRepair.title} • ${selectedRepairVehicleLabel}`
+                            : "Enregistrez ou sélectionnez une réparation pour ajouter des pièces."}
+                        </p>
+                      </div>
+                      {selectedRepair ? (
+                        <button className="ghost-button" type="button" onClick={() => startNewRepairPart(selectedRepair.id)}>
+                          Nouvelle pièce
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {selectedRepair ? (
+                      <>
+                        <div className="form-grid">
+                          <label className="field">
+                            <span>Nom de la pièce</span>
+                            <input
+                              type="text"
+                              value={repairPartDraft.name}
+                              onChange={(event) => updateRepairPartDraft("name", event.target.value)}
+                              placeholder="moteur occasion"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Prix TTC</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={repairPartDraft.amountTtc}
+                              onChange={(event) =>
+                                updateRepairPartDraft("amountTtc", Number(event.target.value) || 0)
+                              }
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Fournisseur</span>
+                            <input
+                              type="text"
+                              value={repairPartDraft.supplier}
+                              onChange={(event) => updateRepairPartDraft("supplier", event.target.value)}
+                              placeholder="garage, casse auto, Oscaro"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Statut pièce</span>
+                            <select
+                              value={repairPartDraft.status}
+                              onChange={(event) =>
+                                updateRepairPartDraft("status", event.target.value as RepairPartEntry["status"])
+                              }
+                            >
+                              {REPAIR_PART_STATUS_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="field field--full">
+                            <span>Commentaire</span>
+                            <textarea
+                              rows={2}
+                              value={repairPartDraft.comment}
+                              onChange={(event) => updateRepairPartDraft("comment", event.target.value)}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="action-row">
+                          <button className="primary-button neutral" type="button" onClick={handleSaveRepairPart} disabled={saving}>
+                            {saving ? "Enregistrement..." : "Enregistrer la pièce"}
+                          </button>
+                          <button className="ghost-button" type="button" onClick={() => startNewRepairPart(selectedRepair.id)}>
+                            Réinitialiser
+                          </button>
+                        </div>
+
+                        <div className="stack-list">
+                          {selectedRepairParts.length === 0 ? (
+                            <p className="empty-copy">Aucune pièce enregistrée pour cette réparation.</p>
+                          ) : (
+                            selectedRepairParts.map((part) => (
+                              <article key={part.id} className="list-card">
+                                <div className="list-card__header">
+                                  <div>
+                                    <strong>{part.name}</strong>
+                                    <p>{part.supplier || "Fournisseur non précisé"}</p>
+                                  </div>
+                                  <div className="chip-row">
+                                    <span className={`status-chip ${getStatusClass(part.status)}`}>{part.status}</span>
+                                    <span className="status-chip active">{formatCurrency(part.amountTtc)}</span>
+                                  </div>
+                                </div>
+                                {part.comment ? <p className="section-copy">{part.comment}</p> : null}
+                                <div className="action-row">
+                                  <button className="ghost-button" type="button" onClick={() => editRepairPart(part)}>
+                                    Modifier
+                                  </button>
+                                  <button className="ghost-button danger-text" type="button" onClick={() => handleDeleteRepairPart(part.id)}>
+                                    Supprimer
+                                  </button>
+                                </div>
+                              </article>
+                            ))
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="empty-copy">Enregistrez d’abord la réparation pour ajouter les pièces TTC exactes.</p>
+                    )}
+                  </div>
+
+                  <div className="group-card">
+                    <div className="section-heading">
+                      <div>
+                        <h3>Réparations du véhicule</h3>
+                        <p className="section-copy">
+                          Suivi des statuts, des montants TTC et de la disponibilité du véhicule.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="stack-list">
+                      {activeVehicleRepairs.length === 0 ? (
+                        <p className="empty-copy">Aucune réparation enregistrée pour ce véhicule.</p>
+                      ) : (
+                        activeVehicleRepairs.map((repair) => {
+                          const repairVehicle =
+                            vehicles.find((vehicle) => vehicle.id === repair.vehicleId) ?? activeVehicle;
+                          const linkedParts = repairPartEntries.filter((part) => part.repairId === repair.id);
+                          const isUnavailable = repair.isBlocking && !isRepairClosed(repair.status);
+                          const canRestoreVehicle =
+                            repair.status === "Terminé" &&
+                            (repairVehicle?.status === "En réparation" || repairVehicle?.status === "En panne");
+                          const priorityClass =
+                            repair.priority === "Urgent"
+                              ? "a-faire-maintenant"
+                              : repair.priority === "Important"
+                                ? "warning"
+                                : "active";
+
+                          return (
+                            <article key={repair.id} className="list-card">
+                              <div className="list-card__header">
+                                <div>
+                                  <strong>{repair.title}</strong>
+                                  <p>
+                                    {repairVehicle ? getVehicleLabel(repairVehicle) : "Véhicule"}
+                                    {repair.mechanicName ? ` • ${repair.mechanicName}` : ""}
+                                    {repair.plannedDate ? ` • ${repair.plannedDate}` : ""}
+                                  </p>
+                                </div>
+                                <div className="chip-row">
+                                  <span className={`status-chip ${getStatusClass(repair.status)}`}>{repair.status}</span>
+                                  <span className={`status-chip ${priorityClass}`}>{repair.priority}</span>
+                                  {repair.isBlocking ? <span className="status-chip en-panne">Bloquante</span> : null}
+                                </div>
+                              </div>
+
+                              {isUnavailable ? (
+                                <p className="section-copy">Non disponible pour travailler.</p>
+                              ) : null}
+
+                              <div className="list-card__metrics">
+                                <span>Pièces : {formatCurrency(repair.partsTotalTtc)} TTC</span>
+                                <span>Main-d’œuvre : {formatCurrency(repair.laborTotalTtc)} TTC</span>
+                                <span>Autres frais : {formatCurrency(repair.otherFeesTtc)} TTC</span>
+                                <span>Total : {formatCurrency(repair.totalRepairTtc)} TTC</span>
+                                <span>{linkedParts.length} pièce(s)</span>
+                                {repair.odometer > 0 ? (
+                                  <span>
+                                    {formatInteger(repair.odometer, " km")}
+                                    {repair.odometerIsApproximate ? " env." : ""}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {repair.description ? <p className="section-copy">{repair.description}</p> : null}
+                              {repair.comment ? <p className="section-copy">{repair.comment}</p> : null}
+
+                              <div className="action-row">
+                                <button className="ghost-button" type="button" onClick={() => editRepair(repair)}>
+                                  Modifier
+                                </button>
+                                <button className="ghost-button" type="button" onClick={() => {
+                                  setSelectedRepairId(repair.id);
+                                  startNewRepairPart(repair.id);
+                                }}>
+                                  Ajouter une pièce
+                                </button>
+                                {repair.status === "Terminé" ? (
+                                  <button className="ghost-button" type="button" onClick={() => handleCreateExpenseFromRepair(repair)}>
+                                    Créer une dépense
+                                  </button>
+                                ) : null}
+                                {canRestoreVehicle ? (
+                                  <button className="ghost-button" type="button" onClick={() => handleSetVehicleAvailableAfterRepair(repair)}>
+                                    Remettre disponible
+                                  </button>
+                                ) : null}
+                                <button className="ghost-button danger-text" type="button" onClick={() => handleDeleteRepair(repair.id)}>
+                                  Supprimer
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
 
                   <div className="group-card">
                     <h3>Créer un rappel</h3>

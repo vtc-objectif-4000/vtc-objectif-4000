@@ -20,7 +20,13 @@ import {
   PlatformPerformance,
   PlatformProfile,
   PlatformSnapshot,
+  RepairCategory,
+  RepairEntry,
+  RepairPartEntry,
   QuoteEntry,
+  RepairPartStatus,
+  RepairPriority,
+  RepairStatus,
   ReminderEntry,
   TARGET_NET_HOURLY,
   TimeSlot,
@@ -262,6 +268,45 @@ export function createChargeEntry(partial?: Partial<ChargeEntry>): ChargeEntry {
     pricePerKwh: partial?.pricePerKwh ?? 0,
     location: partial?.location ?? "",
     fullCharge: partial?.fullCharge ?? true,
+    comment: partial?.comment ?? "",
+  };
+}
+
+export function createRepairEntry(partial?: Partial<RepairEntry>): RepairEntry {
+  const now = createTimestamp();
+
+  return {
+    id: partial?.id ?? buildId("repair"),
+    vehicleId: partial?.vehicleId ?? LEGACY_DEFAULT_VEHICLE_ID,
+    createdAt: partial?.createdAt ?? now,
+    updatedAt: partial?.updatedAt ?? now,
+    title: partial?.title ?? "",
+    category: partial?.category ?? "Autre",
+    description: partial?.description ?? "",
+    status: partial?.status ?? "À faire",
+    priority: partial?.priority ?? "Normal",
+    isBlocking: partial?.isBlocking ?? false,
+    odometer: partial?.odometer ?? 0,
+    odometerIsApproximate: partial?.odometerIsApproximate ?? false,
+    mechanicName: partial?.mechanicName ?? "",
+    plannedDate: partial?.plannedDate ?? "",
+    completedDate: partial?.completedDate ?? "",
+    comment: partial?.comment ?? "",
+    partsTotalTtc: partial?.partsTotalTtc ?? 0,
+    laborTotalTtc: partial?.laborTotalTtc ?? 0,
+    otherFeesTtc: partial?.otherFeesTtc ?? 0,
+    totalRepairTtc: partial?.totalRepairTtc ?? 0,
+  };
+}
+
+export function createRepairPartEntry(partial?: Partial<RepairPartEntry>): RepairPartEntry {
+  return {
+    id: partial?.id ?? buildId("repair-part"),
+    repairId: partial?.repairId ?? "",
+    name: partial?.name ?? "",
+    amountTtc: partial?.amountTtc ?? 0,
+    supplier: partial?.supplier ?? "",
+    status: partial?.status ?? "À acheter",
     comment: partial?.comment ?? "",
   };
 }
@@ -1435,6 +1480,51 @@ export function normalizeChargeEntry(rawValue: unknown): ChargeEntry {
   });
 }
 
+export function normalizeRepairEntry(rawValue: unknown): RepairEntry {
+  const source = isRecord(rawValue) ? rawValue : {};
+
+  const partsTotalTtc = asFiniteNumber(source.partsTotalTtc, 0);
+  const laborTotalTtc = asFiniteNumber(source.laborTotalTtc, 0);
+  const otherFeesTtc = asFiniteNumber(source.otherFeesTtc, 0);
+
+  return createRepairEntry({
+    id: asString(source.id, buildId("repair")),
+    vehicleId: asString(source.vehicleId ?? source.vehicleProfileId, LEGACY_DEFAULT_VEHICLE_ID),
+    createdAt: asString(source.createdAt, createTimestamp()),
+    updatedAt: asString(source.updatedAt, createTimestamp()),
+    title: asString(source.title, ""),
+    category: asString(source.category, "Autre") as RepairCategory,
+    description: asString(source.description, ""),
+    status: asString(source.status, "À faire") as RepairStatus,
+    priority: asString(source.priority, "Normal") as RepairPriority,
+    isBlocking: Boolean(source.isBlocking),
+    odometer: asFiniteNumber(source.odometer, 0),
+    odometerIsApproximate: Boolean(source.odometerIsApproximate),
+    mechanicName: asString(source.mechanicName, ""),
+    plannedDate: asString(source.plannedDate, ""),
+    completedDate: asString(source.completedDate, ""),
+    comment: asString(source.comment, ""),
+    partsTotalTtc,
+    laborTotalTtc,
+    otherFeesTtc,
+    totalRepairTtc: asFiniteNumber(source.totalRepairTtc, partsTotalTtc + laborTotalTtc + otherFeesTtc),
+  });
+}
+
+export function normalizeRepairPartEntry(rawValue: unknown): RepairPartEntry {
+  const source = isRecord(rawValue) ? rawValue : {};
+
+  return createRepairPartEntry({
+    id: asString(source.id, buildId("repair-part")),
+    repairId: asString(source.repairId, ""),
+    name: asString(source.name, ""),
+    amountTtc: asFiniteNumber(source.amountTtc, 0),
+    supplier: asString(source.supplier, ""),
+    status: asString(source.status, "À acheter") as RepairPartStatus,
+    comment: asString(source.comment, ""),
+  });
+}
+
 export function normalizeQuoteEntry(rawValue: unknown): QuoteEntry {
   const source = isRecord(rawValue) ? rawValue : {};
 
@@ -1743,6 +1833,8 @@ export function normalizeLegacyOrCurrentSnapshot(
   expenses: ExpenseEntry[];
   fuelEntries: FuelEntry[];
   chargeEntries: ChargeEntry[];
+  repairEntries: RepairEntry[];
+  repairPartEntries: RepairPartEntry[];
   quoteEntries: QuoteEntry[];
   reminderEntries: ReminderEntry[];
   trips: TripRecord[];
@@ -1768,6 +1860,12 @@ export function normalizeLegacyOrCurrentSnapshot(
     fuelEntries: Array.isArray(snapshot.fuelEntries) ? snapshot.fuelEntries.map(normalizeFuelEntry) : [],
     chargeEntries: Array.isArray(snapshot.chargeEntries)
       ? snapshot.chargeEntries.map(normalizeChargeEntry)
+      : [],
+    repairEntries: Array.isArray(snapshot.repairEntries)
+      ? snapshot.repairEntries.map(normalizeRepairEntry)
+      : [],
+    repairPartEntries: Array.isArray(snapshot.repairPartEntries)
+      ? snapshot.repairPartEntries.map(normalizeRepairPartEntry)
       : [],
     quoteEntries: Array.isArray(snapshot.quoteEntries)
       ? snapshot.quoteEntries.map(normalizeQuoteEntry)
@@ -2602,6 +2700,8 @@ export function buildExportSnapshot(
   expenses: ExpenseEntry[],
   fuelEntries: FuelEntry[],
   chargeEntries: ChargeEntry[],
+  repairEntries: RepairEntry[],
+  repairPartEntries: RepairPartEntry[],
   quoteEntries: QuoteEntry[],
   reminderEntries: ReminderEntry[],
   trips: TripRecord[],
@@ -2614,7 +2714,7 @@ export function buildExportSnapshot(
   ).filter(Boolean);
 
   return {
-    version: 4,
+    version: 5,
     exportedAt: createTimestamp(),
     globalSettings,
     vehicles,
@@ -2622,6 +2722,8 @@ export function buildExportSnapshot(
     expenses,
     fuelEntries,
     chargeEntries,
+    repairEntries,
+    repairPartEntries,
     quoteEntries,
     reminderEntries,
     workDaySummaries: exportMonths.flatMap((month) => buildWorkDaySummaries(trips, expenses, month)),

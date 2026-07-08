@@ -26,6 +26,8 @@ export const VEHICLE_STATUS_OPTIONS = [
   "Actif",
   "Archivé",
   "En panne",
+  "En panne moteur",
+  "En réparation",
   "En test",
   "Loué",
 ] as const;
@@ -80,6 +82,51 @@ export const EXPENSE_CATEGORY_OPTIONS = [
 ] as const;
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORY_OPTIONS)[number];
+
+export const REPAIR_CATEGORY_OPTIONS = [
+  "Moteur",
+  "Freins",
+  "Amortisseurs",
+  "Pneus",
+  "Batterie",
+  "Vidange",
+  "Liquide refroidissement",
+  "Pompe à eau",
+  "Thermostat",
+  "Filtre",
+  "Bougies",
+  "Diagnostic",
+  "Main-d’œuvre",
+  "Autre",
+] as const;
+
+export type RepairCategory = (typeof REPAIR_CATEGORY_OPTIONS)[number];
+
+export const REPAIR_STATUS_OPTIONS = [
+  "À faire",
+  "Pièces à acheter",
+  "Pièces achetées",
+  "Rendez-vous garage prévu",
+  "En cours",
+  "Terminé",
+  "Annulé",
+] as const;
+
+export type RepairStatus = (typeof REPAIR_STATUS_OPTIONS)[number];
+
+export const REPAIR_PRIORITY_OPTIONS = ["Normal", "Important", "Urgent"] as const;
+
+export type RepairPriority = (typeof REPAIR_PRIORITY_OPTIONS)[number];
+
+export const REPAIR_PART_STATUS_OPTIONS = [
+  "À acheter",
+  "Commandée",
+  "Reçue",
+  "Montée",
+  "Annulée",
+] as const;
+
+export type RepairPartStatus = (typeof REPAIR_PART_STATUS_OPTIONS)[number];
 
 export const ZONE_TYPE_OPTIONS = [
   "Paris",
@@ -290,6 +337,39 @@ export interface ChargeEntry {
   pricePerKwh: number;
   location: string;
   fullCharge: boolean;
+  comment: string;
+}
+
+export interface RepairEntry {
+  id: string;
+  vehicleId: string;
+  createdAt: string;
+  updatedAt: string;
+  title: string;
+  category: RepairCategory;
+  description: string;
+  status: RepairStatus;
+  priority: RepairPriority;
+  isBlocking: boolean;
+  odometer: number;
+  odometerIsApproximate: boolean;
+  mechanicName: string;
+  plannedDate: string;
+  completedDate: string;
+  comment: string;
+  partsTotalTtc: number;
+  laborTotalTtc: number;
+  otherFeesTtc: number;
+  totalRepairTtc: number;
+}
+
+export interface RepairPartEntry {
+  id: string;
+  repairId: string;
+  name: string;
+  amountTtc: number;
+  supplier: string;
+  status: RepairPartStatus;
   comment: string;
 }
 
@@ -576,6 +656,8 @@ export interface AppSnapshot {
   expenses: ExpenseEntry[];
   fuelEntries: FuelEntry[];
   chargeEntries: ChargeEntry[];
+  repairEntries: RepairEntry[];
+  repairPartEntries: RepairPartEntry[];
   quoteEntries: QuoteEntry[];
   reminderEntries: ReminderEntry[];
   workDaySummaries: WorkDaySummary[];

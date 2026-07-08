@@ -538,23 +538,43 @@ textarea {
 .status-chip.archive,
 .status-chip.archived,
 .status-chip.bientot,
-.status-chip.moyen {
+.status-chip.moyen,
+.status-chip.pieces-a-acheter,
+.status-chip.pieces-achetees,
+.status-chip.rendez-vous-garage-prevu,
+.status-chip.commandee,
+.status-chip.recue {
   background: rgba(243, 156, 18, 0.16);
   color: #8c5b00;
 }
 
 .status-chip.en-panne,
+.status-chip.en-panne-moteur,
 .status-chip.a-faire-maintenant,
 .status-chip.en-retard,
-.status-chip.mauvais {
+.status-chip.mauvais,
+.status-chip.urgent {
   background: rgba(212, 77, 63, 0.16);
   color: #a13a2f;
 }
 
 .status-chip.en-test,
-.status-chip.loue {
+.status-chip.loue,
+.status-chip.en-reparation,
+.status-chip.en-cours {
   background: rgba(37, 99, 235, 0.14);
   color: #1f4fa8;
+}
+
+.status-chip.termine,
+.status-chip.montee {
+  background: rgba(15, 138, 95, 0.14);
+  color: #0f6d4a;
+}
+
+.status-chip.annule {
+  background: rgba(21, 63, 59, 0.08);
+  color: #49605e;
 }
 
 .danger-text {

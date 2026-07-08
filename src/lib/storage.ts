@@ -8,6 +8,8 @@ import {
   normalizeGlobalSettings,
   normalizeLegacyOrCurrentSnapshot,
   normalizePlatformProfile,
+  normalizeRepairEntry,
+  normalizeRepairPartEntry,
   normalizeQuoteEntry,
   normalizeReminderEntry,
   normalizeTripRecord,
@@ -21,6 +23,8 @@ import {
   GlobalSettings,
   LEGACY_DEFAULT_PLATFORM_ID,
   PlatformProfile,
+  RepairEntry,
+  RepairPartEntry,
   QuoteEntry,
   ReminderEntry,
   TripRecord,
@@ -28,7 +32,7 @@ import {
 } from "../types";
 
 const DB_NAME = "cap-4000-vtc";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const LEGACY_SETTINGS_STORE = "settings";
 const TRIPS_STORE = "trips";
 const META_STORE = "meta";
@@ -37,6 +41,8 @@ const PLATFORMS_STORE = "platforms";
 const EXPENSES_STORE = "expenses";
 const FUEL_STORE = "fuelEntries";
 const CHARGE_STORE = "chargeEntries";
+const REPAIRS_STORE = "repairEntries";
+const REPAIR_PARTS_STORE = "repairPartEntries";
 const QUOTES_STORE = "quoteEntries";
 const REMINDERS_STORE = "reminderEntries";
 const APP_SETTINGS_KEY = "app-settings";
@@ -57,6 +63,8 @@ export interface AppData {
   expenses: ExpenseEntry[];
   fuelEntries: FuelEntry[];
   chargeEntries: ChargeEntry[];
+  repairEntries: RepairEntry[];
+  repairPartEntries: RepairPartEntry[];
   quoteEntries: QuoteEntry[];
   reminderEntries: ReminderEntry[];
   trips: TripRecord[];
@@ -105,6 +113,14 @@ function openDatabase(): Promise<IDBDatabase> {
 
       if (!database.objectStoreNames.contains(CHARGE_STORE)) {
         database.createObjectStore(CHARGE_STORE, { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains(REPAIRS_STORE)) {
+        database.createObjectStore(REPAIRS_STORE, { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains(REPAIR_PARTS_STORE)) {
+        database.createObjectStore(REPAIR_PARTS_STORE, { keyPath: "id" });
       }
 
       if (!database.objectStoreNames.contains(QUOTES_STORE)) {
@@ -186,12 +202,25 @@ async function getLegacySettings(database: IDBDatabase): Promise<{
 
 export async function getAppData(): Promise<AppData> {
   const database = await openDatabase();
-  const [vehiclesRaw, platformsRaw, expensesRaw, fuelRaw, chargeRaw, quotesRaw, remindersRaw, tripsRaw] = await Promise.all([
+  const [
+    vehiclesRaw,
+    platformsRaw,
+    expensesRaw,
+    fuelRaw,
+    chargeRaw,
+    repairsRaw,
+    repairPartsRaw,
+    quotesRaw,
+    remindersRaw,
+    tripsRaw,
+  ] = await Promise.all([
     getAllFromStore<unknown>(database, VEHICLES_STORE),
     getAllFromStore<unknown>(database, PLATFORMS_STORE),
     getAllFromStore<unknown>(database, EXPENSES_STORE),
     getAllFromStore<unknown>(database, FUEL_STORE),
     getAllFromStore<unknown>(database, CHARGE_STORE),
+    getAllFromStore<unknown>(database, REPAIRS_STORE),
+    getAllFromStore<unknown>(database, REPAIR_PARTS_STORE),
     getAllFromStore<unknown>(database, QUOTES_STORE),
     getAllFromStore<unknown>(database, REMINDERS_STORE),
     getAllFromStore<unknown>(database, TRIPS_STORE),
@@ -224,6 +253,8 @@ export async function getAppData(): Promise<AppData> {
     expenses: expensesRaw.map(normalizeExpenseEntry),
     fuelEntries: fuelRaw.map(normalizeFuelEntry),
     chargeEntries: chargeRaw.map(normalizeChargeEntry),
+    repairEntries: repairsRaw.map(normalizeRepairEntry),
+    repairPartEntries: repairPartsRaw.map(normalizeRepairPartEntry),
     quoteEntries: quotesRaw.map(normalizeQuoteEntry),
     reminderEntries: remindersRaw.map(normalizeReminderEntry),
     trips: tripsRaw.map((trip) => normalizeTripRecord(trip, fallbackVehicle, fallbackPlatform)),
@@ -286,6 +317,26 @@ export async function saveChargeEntry(chargeEntry: ChargeEntry): Promise<void> {
 export async function deleteChargeEntry(chargeEntryId: string): Promise<void> {
   const database = await openDatabase();
   await deleteFromStore(database, CHARGE_STORE, chargeEntryId);
+}
+
+export async function saveRepairEntry(repair: RepairEntry): Promise<void> {
+  const database = await openDatabase();
+  await putInStore(database, REPAIRS_STORE, normalizeRepairEntry(repair));
+}
+
+export async function deleteRepairEntry(repairId: string): Promise<void> {
+  const database = await openDatabase();
+  await deleteFromStore(database, REPAIRS_STORE, repairId);
+}
+
+export async function saveRepairPartEntry(repairPart: RepairPartEntry): Promise<void> {
+  const database = await openDatabase();
+  await putInStore(database, REPAIR_PARTS_STORE, normalizeRepairPartEntry(repairPart));
+}
+
+export async function deleteRepairPartEntry(repairPartId: string): Promise<void> {
+  const database = await openDatabase();
+  await deleteFromStore(database, REPAIR_PARTS_STORE, repairPartId);
 }
 
 export async function saveQuoteEntry(quote: QuoteEntry): Promise<void> {
@@ -367,6 +418,8 @@ export async function clearAllData(): Promise<void> {
       EXPENSES_STORE,
       FUEL_STORE,
       CHARGE_STORE,
+      REPAIRS_STORE,
+      REPAIR_PARTS_STORE,
       QUOTES_STORE,
       REMINDERS_STORE,
       TRIPS_STORE,
@@ -381,6 +434,8 @@ export async function clearAllData(): Promise<void> {
   await requestToPromise(transaction.objectStore(EXPENSES_STORE).clear());
   await requestToPromise(transaction.objectStore(FUEL_STORE).clear());
   await requestToPromise(transaction.objectStore(CHARGE_STORE).clear());
+  await requestToPromise(transaction.objectStore(REPAIRS_STORE).clear());
+  await requestToPromise(transaction.objectStore(REPAIR_PARTS_STORE).clear());
   await requestToPromise(transaction.objectStore(QUOTES_STORE).clear());
   await requestToPromise(transaction.objectStore(REMINDERS_STORE).clear());
   await requestToPromise(transaction.objectStore(TRIPS_STORE).clear());
@@ -397,6 +452,8 @@ export async function exportSnapshot(): Promise<AppSnapshot> {
     data.expenses,
     data.fuelEntries,
     data.chargeEntries,
+    data.repairEntries,
+    data.repairPartEntries,
     data.quoteEntries,
     data.reminderEntries,
     data.trips,
@@ -414,6 +471,8 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
       EXPENSES_STORE,
       FUEL_STORE,
       CHARGE_STORE,
+      REPAIRS_STORE,
+      REPAIR_PARTS_STORE,
       QUOTES_STORE,
       REMINDERS_STORE,
       TRIPS_STORE,
@@ -426,6 +485,8 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
   const expensesStore = transaction.objectStore(EXPENSES_STORE);
   const fuelStore = transaction.objectStore(FUEL_STORE);
   const chargeStore = transaction.objectStore(CHARGE_STORE);
+  const repairsStore = transaction.objectStore(REPAIRS_STORE);
+  const repairPartsStore = transaction.objectStore(REPAIR_PARTS_STORE);
   const quotesStore = transaction.objectStore(QUOTES_STORE);
   const remindersStore = transaction.objectStore(REMINDERS_STORE);
   const tripsStore = transaction.objectStore(TRIPS_STORE);
@@ -436,6 +497,8 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
   await requestToPromise(expensesStore.clear());
   await requestToPromise(fuelStore.clear());
   await requestToPromise(chargeStore.clear());
+  await requestToPromise(repairsStore.clear());
+  await requestToPromise(repairPartsStore.clear());
   await requestToPromise(quotesStore.clear());
   await requestToPromise(remindersStore.clear());
   await requestToPromise(tripsStore.clear());
@@ -465,6 +528,14 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
 
   for (const chargeEntry of normalized.chargeEntries) {
     await requestToPromise(chargeStore.put(chargeEntry));
+  }
+
+  for (const repairEntry of normalized.repairEntries) {
+    await requestToPromise(repairsStore.put(repairEntry));
+  }
+
+  for (const repairPartEntry of normalized.repairPartEntries) {
+    await requestToPromise(repairPartsStore.put(repairPartEntry));
   }
 
   for (const quoteEntry of normalized.quoteEntries) {
