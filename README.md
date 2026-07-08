@@ -1,8 +1,16 @@
 # Cap 4000 VTC
 
-Application PWA mobile-first en React + TypeScript + Vite pour un chauffeur VTC. Elle aide à viser **4 000 € de chiffre d'affaires brut par mois** en analysant chaque course avec un seuil de rentabilité **minimum de 30 €/h net**.
+Application PWA mobile-first en React + TypeScript + Vite pour piloter une activité VTC avec plusieurs véhicules, plusieurs plateformes et des calculs de rentabilité réels.
 
-## Installation des dépendances
+## Installation
+
+Avec `pnpm` :
+
+```bash
+pnpm install
+```
+
+Avec `npm` :
 
 ```bash
 npm install
@@ -10,13 +18,27 @@ npm install
 
 ## Lancer en local
 
+Avec `pnpm` :
+
+```bash
+pnpm run dev
+```
+
+Avec `npm` :
+
 ```bash
 npm run dev
 ```
 
-Vite démarre par défaut sur `http://localhost:5173`.
-
 ## Build de production
+
+Avec `pnpm` :
+
+```bash
+pnpm run build
+```
+
+Avec `npm` :
 
 ```bash
 npm run build
@@ -24,47 +46,103 @@ npm run build
 
 Le build final est généré dans `dist/`.
 
-## Installer l'application sur téléphone
+## Déploiement GitHub Pages
 
-L'application est prévue pour être installable comme une PWA.
+Le projet est configuré pour un dépôt nommé `vtc-objectif-4000`.
 
-- Android / Chrome : ouvrez l'application sur une URL HTTPS, puis utilisez `Menu > Installer l'application`.
-- iPhone / Safari : ouvrez l'application, puis utilisez `Partager > Sur l'écran d'accueil`.
-- Hors ligne : ouvrez une première fois l'application en ligne pour permettre au service worker de mettre en cache l'interface.
+- `vite.config.ts` utilise `base: "/vtc-objectif-4000/"`
+- le workflow GitHub Pages publie automatiquement le dossier `dist`
+- le service worker et le manifest utilisent des chemins compatibles avec ce sous-répertoire
 
-## Écrans inclus
+## Installer l’application sur téléphone
 
-- Tableau de bord mensuel
-- Ajout de course avec décision automatique
-- Véhicule et frais d'exploitation
-- Entretien véhicule avec alertes
-- Données : export JSON, import JSON, export CSV du mois, suppression du mois, suppression complète
+- Android / Chrome : ouvrir l’application en HTTPS puis choisir `Installer l’application`
+- iPhone / Safari : ouvrir l’application puis choisir `Partager > Sur l’écran d’accueil`
+- le mode hors ligne fonctionne après une première ouverture en ligne pour mettre en cache l’interface
 
-## Stockage
+## Fonctionnalités principales
 
-Les données sont stockées dans **IndexedDB**.
+- tableau de bord mensuel avec boutons rapides et rappels importants
+- ajout de course avec décision `Accepter`, `Limite` ou `Refuser`
+- calendrier mensuel avec résultat par jour, détail des courses et zones travaillées
+- devis client privé avec prix minimum TTC, prix conseillé TTC, marge et arrondi
+- profils véhicules complets avec coûts estimés, amortissement, crédit, LLD/LOA et entretien
+- profils plateformes avec commission et frais fixes par course
+- journal de dépenses réelles avec amortissement mensuel ou kilométrique
+- journal carburant et journal recharge électrique
+- modes de calcul `estimé`, `réel` et `mixte`
+- rappels d’entretien par date, kilométrage ou les deux
+- suivi spécial après changement moteur avec contrôles automatiques
+- apprentissage progressif des temps par zone, jour et créneau horaire
+- zones rentables avec revenu, attente, temps moyen et €/h net
+- export JSON complet, import JSON et export CSV mensuel
+- stockage local IndexedDB avec migration des anciennes données
 
-Sont enregistrés :
+## Stockage local
 
-- paramètres véhicule
-- paramètres d'entretien
-- toutes les courses avec date, mois, prix, temps, kilomètres, frais, net et décision
+Les données sont enregistrées dans IndexedDB :
+
+- paramètres globaux
+- profils véhicules
+- profils plateformes
+- dépenses
+- pleins carburant
+- recharges électriques
+- devis
+- rappels
+- courses avec snapshots véhicule, plateforme et coûts utilisés au moment de l’enregistrement
+
+Les synthèses calendrier, zones et calibrage des temps sont recalculées depuis les courses et incluses dans l’export JSON.
+
+Les anciennes courses restent visibles après migration.
 
 ## Calculs utilisés
 
-L'application applique les formules suivantes pour chaque course :
+Pour chaque course :
 
 - `temps total = temps approche + temps attente + temps course`
-- `kilomètres totaux = km approche + km course`
-- `coût carburant = km total × consommation L/100 ÷ 100 × prix carburant`
-- `assurance imputée = assurance mensuelle ÷ jours travaillés ÷ heures travaillées par jour ÷ 60 × temps total`
-- `entretien provisionné = km total × coût entretien €/km`
-- `frais totaux = carburant + assurance + entretien`
-- `net réel = prix course - frais totaux`
-- `€/h brut = prix course ÷ temps total × 60`
+- `km total = km approche + km course`
+- `revenu brut = prix brut + pourboire + bonus`
+- `commission plateforme = prix brut × commission %`
+- `revenu après commission = revenu brut - commission plateforme`
+
+Coût énergie :
+
+- thermique / hybride : `km total × consommation L/100 ÷ 100 × prix carburant`
+- électrique : `km total × consommation kWh/100 ÷ 100 × prix kWh`
+- en mode `réel`, l’application utilise le coût réel au km issu des pleins ou recharges
+- en mode `mixte`, elle utilise le réel s’il existe, sinon l’estimé
+
+Coûts imputés :
+
+- `assurance imputée = assurance mensuelle ÷ jours travaillés ÷ heures par jour ÷ 60 × temps total`
+- `frais fixes imputés = frais fixes mensuels ÷ jours travaillés ÷ heures par jour ÷ 60 × temps total`
+- `entretien = km total × coût entretien €/km`
+- `pneus = km total × coût pneus €/km`
+- `freins = km total × coût freins €/km`
+- `vidange = km total × coût vidange €/km`
+- `amortissement` selon le mode choisi : mensuel, au kilomètre ou mixte
+
+Résultat :
+
+- `frais totaux = énergie + assurance + frais fixes + amortissement + entretien + pneus + freins + vidange + réparations + péage + parking`
+- `net réel = revenu après commission - frais totaux`
 - `€/h net = net réel ÷ temps total × 60`
-- `prix minimum avec frais = 30 × temps total ÷ 60 + frais totaux`
-- `écart = prix proposé - prix minimum avec frais`
+- `coût au km = frais totaux ÷ km total`
+
+Pour un devis :
+
+- `frais estimés TTC = énergie + amortissement + frais fixes imputés + entretien + péage estimé TTC + parking estimé TTC + frais divers TTC`
+- `objectif net = 30 × temps total ÷ 60`
+- `prix minimum TTC = frais estimés TTC + objectif net`
+- `prix conseillé TTC = prix minimum TTC + marge de sécurité`
+- `prix arrondi TTC` applique l’arrondi choisi : euro, 5 € ou 10 €
+
+L’apprentissage des temps utilise uniquement les courses saisies :
+
+- `temps moyen par km = temps course ÷ km course`
+- `temps approche moyen par km = temps approche ÷ km approche`
+- confiance `faible` sous 3 courses similaires, `moyen` de 3 à 10, `bon` au-delà de 10
 
 ## Règle de décision
 
@@ -72,8 +150,10 @@ L'application applique les formules suivantes pour chaque course :
 - `Limite` si `€/h net` est entre `27` et `30`
 - `Refuser` si `€/h net < 27`
 
-## Hypothèses complémentaires
+## PWA
 
-- l'objectif mensuel brut est fixé à `4 000 €`
-- le montant restant par jour prévu est calculé à partir des `jours travaillés par mois` configurés
-- les alertes d'entretien passent à `bientôt` quand le kilométrage actuel approche du prochain seuil
+- `public/manifest.json`
+- `public/service-worker.js`
+- installation mobile
+- fonctionnement hors ligne
+- compatible GitHub Pages avec le chemin `/vtc-objectif-4000/`

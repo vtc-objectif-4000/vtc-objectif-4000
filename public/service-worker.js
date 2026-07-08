@@ -1,4 +1,4 @@
-const CACHE_NAME = "cap-4000-vtc-v2";
+const CACHE_NAME = "cap-4000-vtc-v4";
 const BASE_PATH = self.location.pathname.replace(/service-worker\.js$/, "");
 const INDEX_PATH = `${BASE_PATH}index.html`;
 const MANIFEST_PATH = `${BASE_PATH}manifest.json`;
