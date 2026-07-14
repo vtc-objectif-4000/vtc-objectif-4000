@@ -132,17 +132,69 @@ type Notice = {
 
 type FilterValue = "all" | string;
 
-const TABS: Array<{ id: TabId; label: string; navLabel: string }> = [
-  { id: "dashboard", label: "Tableau de bord", navLabel: "Accueil" },
-  { id: "trip", label: "Courses", navLabel: "Courses" },
-  { id: "calendar", label: "Calendrier", navLabel: "Agenda" },
-  { id: "vehicles", label: "Véhicules", navLabel: "Véhicules" },
-  { id: "expenses", label: "Dépenses", navLabel: "Dépenses" },
-  { id: "energy", label: "Carburant", navLabel: "Carburant" },
-  { id: "maintenance", label: "Entretien", navLabel: "Atelier" },
-  { id: "quotes", label: "Devis", navLabel: "Devis" },
-  { id: "data", label: "Données", navLabel: "Données" },
+type PrimaryNavId = "summary" | "trip" | "income" | "expenses" | "profile";
+
+const PRIMARY_NAV_ITEMS: Array<{
+  id: PrimaryNavId;
+  label: string;
+  title: string;
+  description: string;
+  targetTab: TabId;
+}> = [
+  {
+    id: "summary",
+    label: "Synthèse",
+    title: "Ma synthèse",
+    description: "Suivez votre objectif mensuel et vos chiffres les plus importants en un coup d'œil.",
+    targetTab: "dashboard",
+  },
+  {
+    id: "trip",
+    label: "Courses",
+    title: "Mes courses",
+    description: "Analysez chaque proposition rapidement et enregistrez vos trajets rentables.",
+    targetTab: "trip",
+  },
+  {
+    id: "income",
+    label: "Revenus",
+    title: "Mes revenus",
+    description: "Visualisez votre activité, vos journées fortes et vos devis depuis un seul espace.",
+    targetTab: "calendar",
+  },
+  {
+    id: "expenses",
+    label: "Dépenses",
+    title: "Mes dépenses",
+    description: "Centralisez vos dépenses TTC, vos pleins et vos charges liées à l'activité.",
+    targetTab: "expenses",
+  },
+  {
+    id: "profile",
+    label: "Profil",
+    title: "Mon profil",
+    description: "Gérez vos véhicules, l'entretien et la sauvegarde de votre activité.",
+    targetTab: "vehicles",
+  },
 ];
+
+const SECTION_TABS: Record<PrimaryNavId, Array<{ id: TabId; label: string }>> = {
+  summary: [{ id: "dashboard", label: "Synthèse" }],
+  trip: [{ id: "trip", label: "Courses" }],
+  income: [
+    { id: "calendar", label: "Revenus" },
+    { id: "quotes", label: "Devis" },
+  ],
+  expenses: [
+    { id: "expenses", label: "Dépenses" },
+    { id: "energy", label: "Carburant" },
+  ],
+  profile: [
+    { id: "vehicles", label: "Profil" },
+    { id: "maintenance", label: "Entretien" },
+    { id: "data", label: "Données" },
+  ],
+};
 
 const REALTIME_PLATFORM_IDS = [
   "platform-uber",
@@ -205,6 +257,17 @@ function formatMonthLabel(month: string): string {
   }).format(new Date(year, monthIndex - 1, 1));
 }
 
+function formatShortDate(date: string): string {
+  if (!date) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
 function getDaysForMonth(month: string): string[] {
   const [year, monthIndex] = month.split("-").map(Number);
 
@@ -234,6 +297,23 @@ function sortTripsDescending(trips: TripRecord[]): TripRecord[] {
 
     return b.createdAt.localeCompare(a.createdAt);
   });
+}
+
+function getPrimaryNavId(tab: TabId): PrimaryNavId {
+  switch (tab) {
+    case "dashboard":
+      return "summary";
+    case "trip":
+      return "trip";
+    case "calendar":
+    case "quotes":
+      return "income";
+    case "expenses":
+    case "energy":
+      return "expenses";
+    default:
+      return "profile";
+  }
 }
 
 function downloadFile(filename: string, content: string, mimeType: string): void {
@@ -389,6 +469,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [deviceState, setDeviceState] = useState({ isAppleMobile: false, isStandalone: false });
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
   async function loadAllData() {
     const data = await getAppData();
@@ -547,6 +628,10 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    setQuickActionsOpen(false);
+  }, [activeTab]);
+
   const activeVehicle = useMemo(() => {
     return (
       vehicles.find((vehicle) => vehicle.id === globalSettings.activeVehicleProfileId) ??
@@ -660,10 +745,20 @@ export default function App() {
   const remainingGoal = Math.max(selectedObjective - dashboardStats.grossRevenue, 0);
   const achievedPercentage =
     selectedObjective > 0 ? (dashboardStats.grossRevenue / selectedObjective) * 100 : 0;
+  const activePrimaryNav = getPrimaryNavId(activeTab);
+  const activePrimaryNavItem =
+    PRIMARY_NAV_ITEMS.find((item) => item.id === activePrimaryNav) ?? PRIMARY_NAV_ITEMS[0];
+  const sectionTabs = SECTION_TABS[activePrimaryNav];
 
   const monthTrips = trips.filter((trip) => trip.month === selectedMonth);
   const workDaySummaries = buildWorkDaySummaries(trips, expenses, selectedMonth);
   const monthDays = getDaysForMonth(selectedMonth);
+  const isCurrentMonth = selectedMonth === getCurrentMonthValue();
+  const summaryReferenceDate = isCurrentMonth
+    ? getLocalIsoDate()
+    : selectedCalendarDate.startsWith(selectedMonth)
+      ? selectedCalendarDate
+      : `${selectedMonth}-01`;
   const selectedDaySummary = workDaySummaries.find((day) => day.date === selectedCalendarDate) ?? null;
   const selectedDayTrips = trips.filter((trip) => trip.date === selectedCalendarDate);
   const selectedDayExpenses = expenses.filter((expense) => expense.date === selectedCalendarDate);
@@ -746,6 +841,84 @@ export default function App() {
         .filter(Boolean),
     ),
   ).slice(0, 40);
+  const filteredVehicles =
+    dashboardVehicleFilter === "all"
+      ? vehicles.filter((vehicle) => vehicle.status !== "Archivé")
+      : vehicles.filter((vehicle) => vehicle.id === dashboardVehicleFilter);
+  const workedActiveDays = new Set(visibleTrips.map((trip) => trip.date)).size;
+  const plannedWorkDays = filteredVehicles.reduce(
+    (sum, vehicle) => sum + Math.max(vehicle.plannedWorkDaysPerMonth || 0, 0),
+    0,
+  );
+  const monthRemainingCalendarDays = isCurrentMonth
+    ? Math.max(monthDays.length - Number(summaryReferenceDate.slice(-2)) + 1, 1)
+    : Math.max(monthDays.length, 1);
+  const remainingPlannedDays =
+    plannedWorkDays > 0
+      ? Math.max(plannedWorkDays - workedActiveDays, remainingGoal > 0 ? 1 : 0)
+      : Math.max(monthRemainingCalendarDays, remainingGoal > 0 ? 1 : 0);
+  const requiredDailyAverage =
+    remainingGoal > 0 ? remainingGoal / Math.max(remainingPlannedDays, 1) : 0;
+  const summaryDayTrips = visibleTrips.filter((trip) => trip.date === summaryReferenceDate);
+  const summaryDayExpenses = visibleExpenses.filter((expense) => expense.date === summaryReferenceDate);
+  const summaryDayFuelEntries = fuelEntries.filter(
+    (entry) =>
+      entry.date === summaryReferenceDate &&
+      (dashboardVehicleFilter === "all" || entry.vehicleProfileId === dashboardVehicleFilter),
+  );
+  const summaryDayChargeEntries = chargeEntries.filter(
+    (entry) =>
+      entry.date === summaryReferenceDate &&
+      (dashboardVehicleFilter === "all" || entry.vehicleProfileId === dashboardVehicleFilter),
+  );
+  const dayRevenue = summaryDayTrips.reduce((sum, trip) => sum + trip.grossRevenue, 0);
+  const dayOutOfPocketExpenses =
+    summaryDayExpenses.reduce((sum, expense) => sum + expense.amountTtc, 0) +
+    summaryDayFuelEntries.reduce((sum, entry) => sum + entry.amountPaid, 0) +
+    summaryDayChargeEntries.reduce((sum, entry) => sum + entry.amountPaid, 0);
+  const dayNet =
+    summaryDayTrips.reduce((sum, trip) => sum + trip.netIncome, 0) -
+    summaryDayExpenses.reduce((sum, expense) => sum + expense.amountTtc, 0);
+  const monthNetAfterExpenses = dashboardStats.netIncome - dashboardStats.totalExpensesMonth;
+  const heroSpotlight =
+    activePrimaryNav === "summary"
+      ? {
+          label: "Bénéfice net du mois",
+          value: formatCurrency(monthNetAfterExpenses),
+          detail: `${formatNumber(achievedPercentage, "% de l'objectif")} • ${formatInteger(
+            dashboardStats.tripCount,
+            " courses",
+          )}`,
+        }
+      : activePrimaryNav === "trip"
+        ? {
+            label: "Décision instantanée",
+            value: tripPreview ? formatDecisionLabel(tripPreview.decision) : "En attente",
+            detail: tripPreview
+              ? `${formatCurrency(tripPreview.netHourly)}/h net`
+              : "Ajoutez une proposition pour obtenir le feu tricolore.",
+          }
+        : activePrimaryNav === "income"
+          ? {
+              label: "Revenus réalisés",
+              value: formatCurrency(dashboardStats.grossRevenue),
+              detail: `${formatCurrency(dayRevenue)} ${isCurrentMonth ? "aujourd'hui" : `le ${formatShortDate(summaryReferenceDate)}`}`,
+            }
+          : activePrimaryNav === "expenses"
+            ? {
+                label: "Dépenses saisies",
+                value: formatCurrency(dashboardStats.totalExpensesMonth),
+                detail: `${formatCurrency(dayOutOfPocketExpenses)} ${
+                  isCurrentMonth ? "aujourd'hui" : `le ${formatShortDate(summaryReferenceDate)}`
+                }`,
+              }
+            : {
+                label: "Véhicule actif",
+                value: activeVehicle?.profileName ?? "Aucun profil",
+                detail: activeVehicle
+                  ? `${formatInteger(activeVehicle.currentMileage, " km")} • ${activeVehicle.status}`
+                  : "Ajoutez un véhicule pour démarrer.",
+              };
 
   function setNumericTripField(field: keyof TripInput, rawValue: string) {
     setTripInput((current) => ({
@@ -775,6 +948,36 @@ export default function App() {
           }
         : {}),
     }));
+  }
+
+  function handleSelectPrimaryNav(nextNavId: PrimaryNavId) {
+    const nextTarget =
+      PRIMARY_NAV_ITEMS.find((item) => item.id === nextNavId)?.targetTab ?? "dashboard";
+    setActiveTab(nextTarget);
+  }
+
+  function handleQuickAddTrip() {
+    setTripInput((current) => ({
+      ...current,
+      date: getLocalIsoDate(),
+      startTime: getLocalTimeValue(),
+      vehicleProfileId: activeVehicle?.id ?? current.vehicleProfileId,
+      platformProfileId: activePlatform?.id ?? current.platformProfileId,
+      costMode: activeVehicle?.costMode ?? current.costMode,
+    }));
+    setActiveTab("trip");
+    setQuickActionsOpen(false);
+  }
+
+  function handleQuickAddExpense() {
+    setExpenseDraft(
+      createExpenseEntry({
+        date: getLocalIsoDate(),
+        vehicleProfileId: activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID,
+      }),
+    );
+    setActiveTab("expenses");
+    setQuickActionsOpen(false);
   }
 
   function resetTripProposal(
@@ -1970,70 +2173,94 @@ export default function App() {
       <div className="app-background" />
       <main className="app-content">
         <section className="hero-card">
-          <div>
-            <p className="eyebrow">Pilotage VTC multi-véhicules</p>
-            <h1>Cap 4000 VTC</h1>
-            <p className="hero-copy">
-              Pilotez plusieurs véhicules, plusieurs plateformes, vos dépenses réelles, vos
-              pleins et vos recharges avec des snapshots de coûts par course.
-            </p>
-            <div className="hero-meta">
-              <div className="profile-badges">
-                <span className="profile-badge">Objectif 4 000 €</span>
-                <span className="profile-badge">{formatMonthLabel(selectedMonth)}</span>
-                {activeVehicle ? <span className="profile-badge">{activeVehicle.profileName}</span> : null}
-                <span className="profile-badge">
-                  {deviceState.isStandalone ? "Mode app" : "Installable iPhone"}
-                </span>
+          <div className="hero-card__content">
+            <div className="hero-card__header">
+              <div>
+                <p className="eyebrow">Cap 4000 VTC</p>
+                <h1>{activePrimaryNavItem.title}</h1>
               </div>
-              {deviceState.isAppleMobile && !deviceState.isStandalone ? (
-                <div className="install-hint">
-                  <strong>Installation iPhone</strong>
-                  <p>
-                    Ouvrez l’application dans Safari, puis touchez Partager et
-                    {" "}
-                    Sur l’écran d’accueil pour l’utiliser comme une vraie app.
-                  </p>
-                </div>
-              ) : null}
+              <span className="hero-status-pill">
+                {deviceState.isStandalone ? "Mode app" : "PWA iPhone"}
+              </span>
             </div>
+            <p className="hero-copy">
+              {activePrimaryNavItem.description}
+            </p>
           </div>
-          <div className={tripPreview ? `decision-banner ${tripPreview.decision}` : "decision-banner accepter"}>
-            <span className="decision-banner__label">Aperçu course</span>
-            <strong>{tripPreview ? formatDecisionLabel(tripPreview.decision) : "Prêt"}</strong>
-            <span>{tripPreview ? `${formatCurrency(tripPreview.netHourly)}/h net` : "Configurez une course"}</span>
+
+          <article className="hero-balance-card">
+            <span className="hero-balance-card__label">{heroSpotlight.label}</span>
+            <strong>{heroSpotlight.value}</strong>
+            <p>{heroSpotlight.detail}</p>
+          </article>
+
+          <div className="hero-meta">
+            <div className="profile-badges">
+              <span className="profile-badge profile-badge--light">Objectif {formatCurrency(selectedObjective)}</span>
+              <span className="profile-badge profile-badge--light">{formatMonthLabel(selectedMonth)}</span>
+              {activeVehicle ? (
+                <span className="profile-badge profile-badge--light">{activeVehicle.profileName}</span>
+              ) : null}
+              <span className="profile-badge profile-badge--light">Seuil 30 €/h net</span>
+            </div>
+
+            <div className="hero-stat-strip">
+              <div>
+                <span>CA du jour</span>
+                <strong>{formatCurrency(dayRevenue)}</strong>
+              </div>
+              <div>
+                <span>Dépenses du jour</span>
+                <strong>{formatCurrency(dayOutOfPocketExpenses)}</strong>
+              </div>
+              <div>
+                <span>Net du jour</span>
+                <strong>{formatCurrency(dayNet)}</strong>
+              </div>
+            </div>
+
+            {deviceState.isAppleMobile && !deviceState.isStandalone ? (
+              <div className="install-hint">
+                <strong>Installation iPhone</strong>
+                <p>
+                  Ouvrez l’application dans Safari, puis touchez Partager et
+                  {" "}
+                  Sur l’écran d’accueil pour l’utiliser comme une vraie app.
+                </p>
+              </div>
+            ) : null}
           </div>
         </section>
 
         <section className="rules-card">
           <div>
-            <strong>Véhicules actifs</strong>
-            <span>{formatInteger(vehicles.filter((vehicle) => vehicle.status !== "Archivé").length)}</span>
+            <strong>Courses du mois</strong>
+            <span>{formatInteger(dashboardStats.tripCount)}</span>
           </div>
           <div>
-            <strong>Plateformes actives</strong>
-            <span>{formatInteger(platforms.filter((platform) => platform.status === "actif").length)}</span>
+            <strong>Moyenne nette</strong>
+            <span>{formatCurrency(dashboardStats.averageNetHourly)}/h</span>
           </div>
           <div>
-            <strong>Seuil net minimum</strong>
-            <span>30 €/h</span>
+            <strong>Km roulés</strong>
+            <span>{formatNumber(dashboardStats.drivenKm, " km")}</span>
           </div>
         </section>
 
-        <nav className="tab-strip" aria-label="Navigation principale">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              className={tab.id === activeTab ? "tab-button active" : "tab-button"}
-              onClick={() => setActiveTab(tab.id)}
-              aria-current={tab.id === activeTab ? "page" : undefined}
-              type="button"
-            >
-              <span className="tab-button__label">{tab.navLabel}</span>
-              <span className="tab-button__caption">{tab.label}</span>
-            </button>
-          ))}
-        </nav>
+        {sectionTabs.length > 1 ? (
+          <nav className="section-strip" aria-label="Navigation secondaire">
+            {sectionTabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={tab.id === activeTab ? "section-pill active" : "section-pill"}
+                onClick={() => setActiveTab(tab.id)}
+                type="button"
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        ) : null}
 
         {notice ? (
           <section className={`notice ${notice.tone}`}>
@@ -2049,6 +2276,26 @@ export default function App() {
             <p>Chargement des données enregistrées…</p>
           </section>
         ) : null}
+
+        <div className={`floating-action-cluster${quickActionsOpen ? " open" : ""}`}>
+          <div className="floating-action-options" aria-hidden={!quickActionsOpen}>
+            <button className="floating-mini-action" type="button" onClick={handleQuickAddTrip}>
+              + Course
+            </button>
+            <button className="floating-mini-action" type="button" onClick={handleQuickAddExpense}>
+              + Dépense
+            </button>
+          </div>
+          <button
+            className="floating-action-button"
+            type="button"
+            onClick={() => setQuickActionsOpen((current) => !current)}
+            aria-expanded={quickActionsOpen}
+            aria-label="Ajouter rapidement une course ou une dépense"
+          >
+            {quickActionsOpen ? "×" : "+"}
+          </button>
+        </div>
 
         {!loading && activeTab === "dashboard" ? (
           <section className="panel-stack">
@@ -2113,26 +2360,78 @@ export default function App() {
                 </label>
               </div>
 
-              <div className="progress-card">
-                <div>
-                  <span className="progress-card__label">Objectif brut suivi</span>
-                  <strong>{formatCurrency(selectedObjective)}</strong>
-                </div>
-                <div>
-                  <span className="progress-card__label">CA brut filtré</span>
-                  <strong>{formatCurrency(dashboardStats.grossRevenue)}</strong>
-                </div>
-                <div>
-                  <span className="progress-card__label">Objectif restant</span>
-                  <strong>{formatCurrency(remainingGoal)}</strong>
-                </div>
-                <div className="progress-track" aria-hidden="true">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${Math.min(achievedPercentage, 100)}%` }}
+              <div className="summary-premium-grid">
+                <article className="goal-card">
+                  <div className="goal-card__header">
+                    <div>
+                      <p className="eyebrow">Carte centrale</p>
+                      <h3>Objectif 4 000 €</h3>
+                    </div>
+                    <span className="goal-card__status">{formatNumber(achievedPercentage, "% atteint")}</span>
+                  </div>
+                  <div className="goal-card__amounts">
+                    <div>
+                      <span>Objectif mensuel</span>
+                      <strong>{formatCurrency(selectedObjective)}</strong>
+                    </div>
+                    <div>
+                      <span>Chiffre d’affaires réalisé</span>
+                      <strong>{formatCurrency(dashboardStats.grossRevenue)}</strong>
+                    </div>
+                  </div>
+                  <div className="progress-track" aria-hidden="true">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${Math.min(achievedPercentage, 100)}%` }}
+                    />
+                  </div>
+                  <div className="goal-card__footer">
+                    <div>
+                      <span>Reste à atteindre</span>
+                      <strong>{formatCurrency(remainingGoal)}</strong>
+                    </div>
+                    <div>
+                      <span>Moyenne journalière nécessaire</span>
+                      <strong>{formatCurrency(requiredDailyAverage)}</strong>
+                    </div>
+                  </div>
+                </article>
+
+                <div className="summary-stat-grid">
+                  <SummaryStatCard
+                    label="Revenus du jour"
+                    value={formatCurrency(dayRevenue)}
+                    caption={isCurrentMonth ? "Aujourd'hui" : formatShortDate(summaryReferenceDate)}
+                    tone="blue"
+                  />
+                  <SummaryStatCard
+                    label="Dépenses du jour"
+                    value={formatCurrency(dayOutOfPocketExpenses)}
+                    caption="Sorties enregistrées"
+                    tone="gold"
+                  />
+                  <SummaryStatCard
+                    label="Bénéfice net"
+                    value={formatCurrency(monthNetAfterExpenses)}
+                    caption="Mois sélectionné"
+                    tone="positive"
+                  />
+                  <SummaryStatCard
+                    label="Revenu après commission"
+                    value={formatCurrency(dashboardStats.revenueAfterCommission)}
+                    caption={`${formatInteger(dashboardStats.tripCount)} courses`}
+                  />
+                  <SummaryStatCard
+                    label="Heures travaillées"
+                    value={formatNumber(dashboardStats.workedHours, " h")}
+                    caption={`${formatCurrency(dashboardStats.averageNetHourly)}/h net`}
+                  />
+                  <SummaryStatCard
+                    label="Jours actifs restants"
+                    value={formatInteger(remainingPlannedDays)}
+                    caption="Selon le plan de travail"
                   />
                 </div>
-                <p className="progress-copy">{formatNumber(achievedPercentage, "% atteint")}</p>
               </div>
 
               <div className="quick-actions">
@@ -2168,7 +2467,7 @@ export default function App() {
                   + Devis
                 </button>
                 <button className="ghost-button" type="button" onClick={() => setActiveTab("vehicles")}>
-                  Résultat véhicule
+                  Mon profil
                 </button>
               </div>
             </article>
@@ -5519,6 +5818,21 @@ export default function App() {
             </article>
           </section>
         ) : null}
+
+        <nav className="tab-strip" aria-label="Navigation principale">
+          {PRIMARY_NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              className={item.id === activePrimaryNav ? "tab-button active" : "tab-button"}
+              onClick={() => handleSelectPrimaryNav(item.id)}
+              aria-current={item.id === activePrimaryNav ? "page" : undefined}
+              type="button"
+            >
+              <span className="tab-button__icon">{item.label.slice(0, 1)}</span>
+              <span className="tab-button__label">{item.label}</span>
+            </button>
+          ))}
+        </nav>
       </main>
     </div>
   );
@@ -5529,6 +5843,26 @@ function MetricCard({ label, value }: { label: string; value: string }) {
     <article className="metric-card">
       <span>{label}</span>
       <strong>{value}</strong>
+    </article>
+  );
+}
+
+function SummaryStatCard({
+  label,
+  value,
+  caption,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  tone?: "default" | "gold" | "blue" | "positive";
+}) {
+  return (
+    <article className={`summary-stat-card summary-stat-card--${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {caption ? <p>{caption}</p> : null}
     </article>
   );
 }
