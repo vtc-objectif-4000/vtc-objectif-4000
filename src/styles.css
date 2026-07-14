@@ -1,7 +1,18 @@
 :root {
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "SF Pro Display", "SF Pro Text", "Avenir Next", "Segoe UI", sans-serif;
   line-height: 1.4;
   font-weight: 500;
+  --app-ink: #15302d;
+  --app-muted: #49605e;
+  --app-border: rgba(21, 63, 59, 0.08);
+  --app-panel: rgba(255, 252, 244, 0.84);
+  --app-panel-strong: rgba(255, 255, 255, 0.8);
+  --app-shadow: 0 18px 40px rgba(21, 63, 59, 0.08);
+  --app-green: #0f8a5f;
+  --app-green-deep: #153f3b;
+  --app-gold: #f4c95d;
+  --app-orange: #f39c12;
+  --app-red: #d44d3f;
   color: #15302d;
   background:
     radial-gradient(circle at top, rgba(169, 209, 142, 0.35), transparent 34%),
@@ -26,6 +37,8 @@ body,
 
 body {
   min-height: 100vh;
+  min-height: 100svh;
+  overscroll-behavior-y: contain;
 }
 
 button,
@@ -33,6 +46,8 @@ input,
 select,
 textarea {
   font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 button {
@@ -49,6 +64,7 @@ textarea {
 .app-shell {
   position: relative;
   min-height: 100vh;
+  min-height: 100svh;
   overflow-x: hidden;
 }
 
@@ -57,45 +73,83 @@ textarea {
   inset: 0;
   background:
     radial-gradient(circle at 10% 20%, rgba(244, 201, 93, 0.22), transparent 24%),
-    radial-gradient(circle at 85% 0%, rgba(15, 138, 95, 0.2), transparent 28%);
+    radial-gradient(circle at 85% 0%, rgba(15, 138, 95, 0.2), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0));
   pointer-events: none;
 }
 
 .app-content {
   position: relative;
   z-index: 1;
-  width: min(100%, 780px);
+  width: min(100%, 820px);
   margin: 0 auto;
-  padding: 20px 16px 40px;
+  padding:
+    calc(20px + env(safe-area-inset-top))
+    16px
+    calc(108px + env(safe-area-inset-bottom))
+    16px;
 }
 
 .hero-card,
 .rules-card,
 .panel-card,
 .notice {
-  background: rgba(255, 252, 244, 0.84);
+  background: var(--app-panel);
   backdrop-filter: blur(18px);
-  border: 1px solid rgba(21, 63, 59, 0.08);
-  box-shadow: 0 18px 40px rgba(21, 63, 59, 0.08);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow);
   animation: rise-in 320ms ease;
 }
 
 .hero-card {
   display: grid;
   gap: 18px;
-  padding: 22px;
-  border-radius: 28px;
+  padding: 24px;
+  border-radius: 32px;
+  overflow: hidden;
+}
+
+.hero-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.46), transparent 70%);
+  pointer-events: none;
 }
 
 .hero-card h1 {
   margin: 8px 0 10px;
   font-size: clamp(2rem, 6vw, 3.2rem);
   line-height: 0.95;
+  letter-spacing: -0.04em;
 }
 
 .hero-copy {
   margin: 0;
-  color: #49605e;
+  color: var(--app-muted);
+}
+
+.hero-meta {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.install-hint {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(21, 63, 59, 0.09);
+}
+
+.install-hint strong,
+.install-hint p {
+  margin: 0;
 }
 
 .eyebrow {
@@ -103,7 +157,7 @@ textarea {
   font-size: 0.78rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #0f8a5f;
+  color: var(--app-green);
 }
 
 .decision-banner {
@@ -118,7 +172,7 @@ textarea {
 .decision-banner.accepter,
 .primary-button.accepter,
 .decision-chip.accepter {
-  background: linear-gradient(135deg, #0f8a5f 0%, #3ebf8b 100%);
+  background: linear-gradient(135deg, var(--app-green) 0%, #3ebf8b 100%);
 }
 
 .decision-banner.limite,
@@ -133,7 +187,7 @@ textarea {
 .primary-button.danger,
 .primary-button.refuser,
 .decision-chip.refuser {
-  background: linear-gradient(135deg, #d44d3f 0%, #ef6a5b 100%);
+  background: linear-gradient(135deg, var(--app-red) 0%, #ef6a5b 100%);
 }
 
 .decision-banner__label {
@@ -147,7 +201,7 @@ textarea {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 16px;
   padding: 16px;
-  border-radius: 24px;
+  border-radius: 26px;
 }
 
 .rules-card div {
@@ -169,7 +223,7 @@ textarea {
   gap: 10px;
   overflow-x: auto;
   padding: 12px 2px 6px;
-  margin: 14px 0;
+  margin: 14px 0 18px;
   scrollbar-width: none;
 }
 
@@ -179,18 +233,35 @@ textarea {
 
 .tab-button {
   flex: 0 0 auto;
-  padding: 14px 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(21, 63, 59, 0.12);
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  min-width: 92px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(21, 63, 59, 0.1);
   background: rgba(255, 255, 255, 0.75);
   color: #274440;
   font-weight: 700;
 }
 
 .tab-button.active {
-  background: #153f3b;
+  background: var(--app-green-deep);
   color: #fffef7;
   box-shadow: 0 12px 24px rgba(21, 63, 59, 0.15);
+}
+
+.tab-button__label {
+  font-size: 0.92rem;
+  line-height: 1.1;
+}
+
+.tab-button__caption {
+  display: none;
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.72;
+  line-height: 1.1;
 }
 
 .notice {
@@ -216,10 +287,10 @@ textarea {
 }
 
 .ghost-button {
-  padding: 10px 14px;
+  padding: 11px 15px;
   border: 1px solid rgba(21, 63, 59, 0.12);
   border-radius: 999px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .panel-stack {
@@ -229,7 +300,7 @@ textarea {
 
 .panel-card {
   padding: 20px;
-  border-radius: 28px;
+  border-radius: 30px;
 }
 
 .panel-card--decision.accepter {
@@ -272,11 +343,23 @@ textarea {
 .field select,
 .field textarea {
   width: 100%;
+  min-height: 56px;
   padding: 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.88);
-  color: #15302d;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--app-ink);
+  font-size: 16px;
   box-shadow: inset 0 0 0 1px rgba(21, 63, 59, 0.08);
+  transition: box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 138, 95, 0.36),
+    0 0 0 4px rgba(15, 138, 95, 0.08);
 }
 
 .field textarea {
@@ -316,7 +399,7 @@ textarea {
   display: grid;
   gap: 14px;
   padding: 18px;
-  border-radius: 24px;
+  border-radius: 26px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 244, 230, 0.78));
   border: 1px solid rgba(21, 63, 59, 0.08);
 }
@@ -366,8 +449,8 @@ textarea {
 
 .metric-card {
   padding: 16px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.7);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(21, 63, 59, 0.08);
 }
 
@@ -387,7 +470,7 @@ textarea {
   display: grid;
   gap: 12px;
   padding: 18px;
-  border-radius: 22px;
+  border-radius: 24px;
   background: linear-gradient(145deg, rgba(15, 138, 95, 0.1), rgba(244, 201, 93, 0.12));
 }
 
@@ -434,7 +517,7 @@ textarea {
 
 .live-signal {
   position: sticky;
-  top: 10px;
+  top: calc(12px + env(safe-area-inset-top));
   z-index: 4;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -547,9 +630,10 @@ textarea {
 .platform-quick-button {
   display: grid;
   gap: 4px;
+  min-height: 72px;
   padding: 14px 16px;
   border: 1px solid rgba(21, 63, 59, 0.12);
-  border-radius: 20px;
+  border-radius: 22px;
   background: rgba(255, 255, 255, 0.72);
   color: #274440;
   text-align: left;
@@ -624,7 +708,7 @@ textarea {
   display: grid;
   gap: 12px;
   padding: 16px;
-  border-radius: 22px;
+  border-radius: 24px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(21, 63, 59, 0.08);
 }
@@ -794,7 +878,7 @@ textarea {
   justify-content: space-between;
   align-items: center;
   padding: 14px 16px;
-  border-radius: 18px;
+  border-radius: 20px;
   background: rgba(255, 255, 255, 0.8);
   box-shadow: inset 0 0 0 1px rgba(21, 63, 59, 0.08);
 }
@@ -812,7 +896,7 @@ textarea {
 
 .trip-row {
   padding: 16px;
-  border-radius: 22px;
+  border-radius: 24px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(21, 63, 59, 0.08);
 }
@@ -877,7 +961,7 @@ textarea {
   display: grid;
   gap: 10px;
   padding: 16px;
-  border-radius: 22px;
+  border-radius: 24px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(21, 63, 59, 0.08);
 }
@@ -923,7 +1007,7 @@ textarea {
   width: 100%;
   padding: 17px 18px;
   border: none;
-  border-radius: 20px;
+  border-radius: 22px;
   color: #fffef7;
   font-size: 1rem;
   font-weight: 800;
@@ -953,12 +1037,26 @@ textarea {
 
 @media (min-width: 640px) {
   .app-content {
-    padding: 28px 20px 56px;
+    padding:
+      calc(28px + env(safe-area-inset-top))
+      20px
+      calc(72px + env(safe-area-inset-bottom))
+      20px;
   }
 
   .hero-card {
     grid-template-columns: 1.35fr 0.95fr;
     align-items: stretch;
+  }
+
+  .tab-button {
+    justify-items: start;
+    min-width: 120px;
+    text-align: left;
+  }
+
+  .tab-button__caption {
+    display: block;
   }
 
   .form-grid {
@@ -1022,5 +1120,45 @@ textarea {
   .calendar-day {
     min-height: 52px;
     border-radius: 10px;
+  }
+}
+
+@media (max-width: 640px) {
+  .tab-strip {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 7;
+    gap: 8px;
+    margin: 0;
+    padding:
+      12px
+      16px
+      calc(12px + env(safe-area-inset-bottom))
+      16px;
+    background: linear-gradient(180deg, rgba(245, 241, 232, 0.22), rgba(245, 241, 232, 0.92) 28%, rgba(245, 241, 232, 0.98) 100%);
+    backdrop-filter: blur(26px);
+    border-top: 1px solid rgba(21, 63, 59, 0.08);
+    box-shadow: 0 -14px 34px rgba(21, 63, 59, 0.08);
+  }
+
+  .tab-button {
+    min-height: 64px;
+    min-width: 96px;
+    padding: 12px 14px;
+  }
+
+  .app-shell--standalone .tab-strip {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .decision-banner {
+    min-height: 136px;
+    justify-content: center;
+  }
+}
+
+@media (display-mode: standalone) {
+  body {
+    background: linear-gradient(180deg, #f6f1e8 0%, #edf4f5 100%);
   }
 }

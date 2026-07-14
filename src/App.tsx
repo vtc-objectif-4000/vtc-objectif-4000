@@ -132,16 +132,16 @@ type Notice = {
 
 type FilterValue = "all" | string;
 
-const TABS: Array<{ id: TabId; label: string }> = [
-  { id: "dashboard", label: "Tableau de bord" },
-  { id: "trip", label: "Courses" },
-  { id: "calendar", label: "Calendrier" },
-  { id: "vehicles", label: "Véhicules" },
-  { id: "expenses", label: "Dépenses" },
-  { id: "energy", label: "Carburant" },
-  { id: "maintenance", label: "Entretien" },
-  { id: "quotes", label: "Devis" },
-  { id: "data", label: "Données" },
+const TABS: Array<{ id: TabId; label: string; navLabel: string }> = [
+  { id: "dashboard", label: "Tableau de bord", navLabel: "Accueil" },
+  { id: "trip", label: "Courses", navLabel: "Courses" },
+  { id: "calendar", label: "Calendrier", navLabel: "Agenda" },
+  { id: "vehicles", label: "Véhicules", navLabel: "Véhicules" },
+  { id: "expenses", label: "Dépenses", navLabel: "Dépenses" },
+  { id: "energy", label: "Carburant", navLabel: "Carburant" },
+  { id: "maintenance", label: "Entretien", navLabel: "Atelier" },
+  { id: "quotes", label: "Devis", navLabel: "Devis" },
+  { id: "data", label: "Données", navLabel: "Données" },
 ];
 
 const REALTIME_PLATFORM_IDS = [
@@ -388,6 +388,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [deviceState, setDeviceState] = useState({ isAppleMobile: false, isStandalone: false });
 
   async function loadAllData() {
     const data = await getAppData();
@@ -529,6 +530,21 @@ export default function App() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isAppleMobile =
+      /iphone|ipad|ipod/.test(userAgent) ||
+      (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+
+    setDeviceState({
+      isAppleMobile,
+      isStandalone,
+    });
   }, []);
 
   const activeVehicle = useMemo(() => {
@@ -1946,7 +1962,11 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell${deviceState.isAppleMobile ? " app-shell--apple" : ""}${
+        deviceState.isStandalone ? " app-shell--standalone" : ""
+      }`}
+    >
       <div className="app-background" />
       <main className="app-content">
         <section className="hero-card">
@@ -1957,6 +1977,26 @@ export default function App() {
               Pilotez plusieurs véhicules, plusieurs plateformes, vos dépenses réelles, vos
               pleins et vos recharges avec des snapshots de coûts par course.
             </p>
+            <div className="hero-meta">
+              <div className="profile-badges">
+                <span className="profile-badge">Objectif 4 000 €</span>
+                <span className="profile-badge">{formatMonthLabel(selectedMonth)}</span>
+                {activeVehicle ? <span className="profile-badge">{activeVehicle.profileName}</span> : null}
+                <span className="profile-badge">
+                  {deviceState.isStandalone ? "Mode app" : "Installable iPhone"}
+                </span>
+              </div>
+              {deviceState.isAppleMobile && !deviceState.isStandalone ? (
+                <div className="install-hint">
+                  <strong>Installation iPhone</strong>
+                  <p>
+                    Ouvrez l’application dans Safari, puis touchez Partager et
+                    {" "}
+                    Sur l’écran d’accueil pour l’utiliser comme une vraie app.
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className={tripPreview ? `decision-banner ${tripPreview.decision}` : "decision-banner accepter"}>
             <span className="decision-banner__label">Aperçu course</span>
@@ -1986,9 +2026,11 @@ export default function App() {
               key={tab.id}
               className={tab.id === activeTab ? "tab-button active" : "tab-button"}
               onClick={() => setActiveTab(tab.id)}
+              aria-current={tab.id === activeTab ? "page" : undefined}
               type="button"
             >
-              {tab.label}
+              <span className="tab-button__label">{tab.navLabel}</span>
+              <span className="tab-button__caption">{tab.label}</span>
             </button>
           ))}
         </nav>

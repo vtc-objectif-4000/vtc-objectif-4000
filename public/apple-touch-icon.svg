@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Cap 4000 VTC</title>
+  <desc id="desc">Icône iPhone premium pour l'application Cap 4000 VTC.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#102726" />
+      <stop offset="48%" stop-color="#153f3b" />
+      <stop offset="100%" stop-color="#0f8a5f" />
+    </linearGradient>
+    <linearGradient id="car" x1="0%" x2="100%" y1="50%" y2="50%">
+      <stop offset="0%" stop-color="#fff8de" />
+      <stop offset="100%" stop-color="#f4c95d" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="132" fill="url(#bg)" />
+  <circle cx="256" cy="168" r="132" fill="#ffffff12" />
+  <path
+    d="M130 302c8-25 28-42 52-48l35-56c8-12 22-20 37-20h50c15 0 29 7 37 20l31 54c27 5 47 23 55 48l17 58c3 12-5 22-18 22h-17v28c0 16-14 30-30 30h-8c-16 0-30-14-30-30v-28H204v28c0 16-14 30-30 30h-8c-16 0-30-14-30-30v-28h-18c-12 0-21-10-18-22l22-58Z"
+    fill="url(#car)"
+  />
+  <path
+    d="M204 222c6-9 15-14 25-14h55c11 0 19 5 25 15l18 31H184l20-32Z"
+    fill="#fffef7"
+  />
+  <circle cx="184" cy="320" r="22" fill="#153f3b" />
+  <circle cx="328" cy="320" r="22" fill="#153f3b" />
+  <path
+    d="M110 116c43-35 101-54 163-54 63 0 121 19 167 54"
+    fill="none"
+    stroke="#f4c95d"
+    stroke-linecap="round"
+    stroke-width="22"
+  />
+  <text
+    x="256"
+    y="434"
+    fill="#fffef7"
+    font-family="Avenir Next, SF Pro Display, Segoe UI, sans-serif"
+    font-size="62"
+    font-weight="800"
+    text-anchor="middle"
+  >
+    Cap 4000
+  </text>
+</svg>

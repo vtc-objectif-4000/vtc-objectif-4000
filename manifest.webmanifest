@@ -1,16 +1,17 @@
 {
-  "name": "EduConcret - Moctar Touré",
-  "short_name": "EduConcret",
-  "description": "Ingénierie pédagogique, orientation et accompagnement de projet.",
-  "start_url": "/",
-  "scope": "/",
-  "display": "standalone",
-  "background_color": "#f7f3ed",
-  "theme_color": "#0e0c0a",
+  "name": "Cap 4000 VTC",
+  "short_name": "Cap 4000",
+  "description": "PWA VTC pour refuser les courses non rentables et piloter un objectif mensuel de 4 000 € brut par mois.",
   "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f0e7",
+  "theme_color": "#153f3b",
   "icons": [
     {
-      "src": "/icons/icon.svg",
+      "src": "./public/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

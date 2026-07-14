@@ -1,9 +1,10 @@
-const CACHE_NAME = "cap-4000-vtc-v4";
+const CACHE_NAME = "cap-4000-vtc-v5";
 const BASE_PATH = self.location.pathname.replace(/service-worker\.js$/, "");
 const INDEX_PATH = `${BASE_PATH}index.html`;
 const MANIFEST_PATH = `${BASE_PATH}manifest.json`;
 const ICON_PATH = `${BASE_PATH}icon.svg`;
-const APP_SHELL = [BASE_PATH, INDEX_PATH, MANIFEST_PATH, ICON_PATH];
+const APPLE_ICON_PATH = `${BASE_PATH}apple-touch-icon.svg`;
+const APP_SHELL = [BASE_PATH, INDEX_PATH, MANIFEST_PATH, ICON_PATH, APPLE_ICON_PATH];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

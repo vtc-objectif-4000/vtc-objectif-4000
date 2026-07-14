@@ -3,18 +3,29 @@
   "short_name": "Cap 4000",
   "description": "PWA VTC pour refuser les courses non rentables et piloter un objectif de 4 000 € brut par mois.",
   "lang": "fr",
+  "dir": "ltr",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
-  "background_color": "#f3f7ef",
-  "theme_color": "#0f8a5f",
+  "background_color": "#f5f0e7",
+  "theme_color": "#153f3b",
+  "categories": ["business", "finance", "productivity", "travel"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "./icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    },
+    {
+      "src": "./apple-touch-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }

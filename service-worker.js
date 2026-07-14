@@ -1,9 +1,5 @@
-const CACHE_NAME = "educoncret-v1";
-const CORE_ASSETS = [
-  "/",
-  "/manifest.webmanifest",
-  "/icons/icon.svg"
-];
+const CACHE_NAME = "cap-4000-vtc-root-v1";
+const CORE_ASSETS = ["/", "/manifest.webmanifest", "/public/icon.svg", "/public/apple-touch-icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
