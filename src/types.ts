@@ -773,6 +773,17 @@ export const DEFAULT_PLATFORM_PROFILES: PlatformProfile[] = [
     status: "actif",
   },
   {
+    id: "platform-freenow",
+    createdAt: "",
+    updatedAt: "",
+    name: "FreeNow",
+    commissionRate: 20,
+    fixedFeePerTrip: 0,
+    defaultBonus: 0,
+    comment: "Ajustez la commission selon votre contrat FreeNow.",
+    status: "actif",
+  },
+  {
     id: LEGACY_DEFAULT_PLATFORM_ID,
     createdAt: "",
     updatedAt: "",

@@ -76,6 +76,7 @@ import {
   ChargeEntry,
   CostMode,
   DEFAULT_GLOBAL_SETTINGS,
+  DEFAULT_PLATFORM_PROFILES,
   DEPRECIATION_MODE_OPTIONS,
   Decision,
   ENERGY_TYPE_OPTIONS,
@@ -143,6 +144,13 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: "data", label: "Données" },
 ];
 
+const REALTIME_PLATFORM_IDS = [
+  "platform-uber",
+  "platform-bolt",
+  "platform-heetch",
+  "platform-freenow",
+] as const;
+
 const currencyFormatter = new Intl.NumberFormat("fr-FR", {
   style: "currency",
   currency: "EUR",
@@ -160,6 +168,13 @@ function getLocalIsoDate(): string {
   const now = new Date();
   const offsetDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
   return offsetDate.toISOString().slice(0, 10);
+}
+
+function getLocalTimeValue(): string {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
 }
 
 function getCurrentMonthValue(): string {
@@ -279,6 +294,18 @@ function getFilterLabel(value: FilterValue, fallback: string): string {
   return value === "all" ? fallback : value;
 }
 
+function mergeRealtimePlatforms(platforms: PlatformProfile[]): PlatformProfile[] {
+  const existingIds = new Set(platforms.map((platform) => platform.id));
+  const missingRealtimePlatforms = DEFAULT_PLATFORM_PROFILES.filter(
+    (platform) => platform.id === "platform-freenow" && !existingIds.has(platform.id),
+  )
+    .map((platform) => createPlatformProfile(platform));
+
+  return missingRealtimePlatforms.length > 0
+    ? sortByUpdatedAtDesc([...platforms, ...missingRealtimePlatforms])
+    : platforms;
+}
+
 function isRepairClosed(status: RepairEntry["status"]): boolean {
   return status === "Terminé" || status === "Annulé";
 }
@@ -365,7 +392,7 @@ export default function App() {
   async function loadAllData() {
     const data = await getAppData();
     const sortedVehicles = sortByUpdatedAtDesc(data.vehicles);
-    const sortedPlatforms = sortByUpdatedAtDesc(data.platforms);
+    const sortedPlatforms = mergeRealtimePlatforms(sortByUpdatedAtDesc(data.platforms));
     const sortedExpenses = sortByUpdatedAtDesc(data.expenses);
     const sortedFuelEntries = sortByUpdatedAtDesc(data.fuelEntries);
     const sortedChargeEntries = sortByUpdatedAtDesc(data.chargeEntries);
@@ -519,6 +546,11 @@ export default function App() {
       null
     );
   }, [platforms, globalSettings.activePlatformProfileId]);
+
+  const realtimePlatforms = useMemo(() => {
+    return REALTIME_PLATFORM_IDS.map((platformId) => platforms.find((platform) => platform.id === platformId))
+      .filter((platform): platform is PlatformProfile => Boolean(platform));
+  }, [platforms]);
 
   const tripVehicle =
     vehicles.find((vehicle) => vehicle.id === tripInput.vehicleProfileId) ?? activeVehicle;
@@ -726,6 +758,34 @@ export default function App() {
               vehicles.find((vehicle) => vehicle.id === value)?.costMode ?? current.costMode,
           }
         : {}),
+    }));
+  }
+
+  function resetTripProposal(
+    vehicleId = tripInput.vehicleProfileId,
+    platformId = tripInput.platformProfileId,
+  ) {
+    const vehicle = vehicles.find((item) => item.id === vehicleId) ?? activeVehicle;
+    const timeValue = getLocalTimeValue();
+    setTripInput({
+      ...createTripInput(
+        vehicleId,
+        platformId,
+        vehicle?.costMode ?? tripInput.costMode,
+      ),
+      date: getLocalIsoDate(),
+      startTime: timeValue,
+      timeSlot: getTimeSlotFromTime(timeValue),
+      bonus: platforms.find((platform) => platform.id === platformId)?.defaultBonus ?? 0,
+    });
+  }
+
+  function selectRealtimePlatform(platformId: string) {
+    const platform = platforms.find((item) => item.id === platformId) ?? null;
+    setTripInput((current) => ({
+      ...current,
+      platformProfileId: platformId,
+      bonus: current.bonus > 0 ? current.bonus : platform?.defaultBonus ?? 0,
     }));
   }
 
@@ -1672,13 +1732,7 @@ export default function App() {
       });
       await saveTrip(trip);
       await loadAllData();
-      setTripInput(
-        createTripInput(
-          tripVehicle.id,
-          tripPlatform.id,
-          tripVehicle.costMode,
-        ),
-      );
+      resetTripProposal(tripVehicle.id, tripPlatform.id);
       setActiveTab("dashboard");
       setNotice({
         tone:
@@ -2306,274 +2360,367 @@ export default function App() {
             <article className="panel-card">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Nouvelle course</p>
-                  <h2>Rentabilité réelle par course</h2>
-                </div>
-              </div>
-
-              <div className="form-grid">
-                <label className="field">
-                  <span>Date</span>
-                  <input
-                    type="date"
-                    value={tripInput.date}
-                    onChange={(event) => setTextTripField("date", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Heure</span>
-                  <input
-                    type="time"
-                    value={tripInput.startTime}
-                    onChange={(event) =>
-                      setTripInput((current) => ({
-                        ...current,
-                        startTime: event.target.value,
-                        timeSlot: getTimeSlotFromTime(event.target.value),
-                      }))
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span>Véhicule utilisé</span>
-                  <select
-                    value={tripInput.vehicleProfileId}
-                    onChange={(event) => setTripSelectField("vehicleProfileId", event.target.value)}
-                  >
-                    {vehicles.map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicle.profileName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Plateforme utilisée</span>
-                  <select
-                    value={tripInput.platformProfileId}
-                    onChange={(event) => setTripSelectField("platformProfileId", event.target.value)}
-                  >
-                    {platforms.map((platform) => (
-                      <option key={platform.id} value={platform.id}>
-                        {platform.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Mode de calcul</span>
-                  <select
-                    value={tripInput.costMode}
-                    onChange={(event) => setTripSelectField("costMode", event.target.value)}
-                  >
-                    {COST_MODE_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Prix brut proposé</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={tripInput.basePrice}
-                    onChange={(event) => setNumericTripField("basePrice", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Pourboire</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={tripInput.tip}
-                    onChange={(event) => setNumericTripField("tip", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Bonus</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={tripInput.bonus}
-                    onChange={(event) => setNumericTripField("bonus", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Péage</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={tripInput.toll}
-                    onChange={(event) => setNumericTripField("toll", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Parking</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={tripInput.parking}
-                    onChange={(event) => setNumericTripField("parking", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Temps approche (min)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={tripInput.approachMinutes}
-                    onChange={(event) => setNumericTripField("approachMinutes", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Temps attente (min)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={tripInput.waitMinutes}
-                    onChange={(event) => setNumericTripField("waitMinutes", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Temps course (min)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={tripInput.tripMinutes}
-                    onChange={(event) => setNumericTripField("tripMinutes", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Temps estimé par l’app</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={tripInput.estimatedTripMinutes}
-                    onChange={(event) => setNumericTripField("estimatedTripMinutes", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Km approche</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={tripInput.approachKm}
-                    onChange={(event) => setNumericTripField("approachKm", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Km course</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={tripInput.tripKm}
-                    onChange={(event) => setNumericTripField("tripKm", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Zone de départ</span>
-                  <input
-                    type="text"
-                    list="zone-suggestions"
-                    value={tripInput.pickupZone}
-                    onChange={(event) =>
-                      setTripInput((current) => ({
-                        ...current,
-                        pickupZone: event.target.value,
-                        zone: event.target.value,
-                      }))
-                    }
-                    placeholder="Paris 11, Orly, CDG..."
-                  />
-                </label>
-                <label className="field">
-                  <span>Zone d’arrivée</span>
-                  <input
-                    type="text"
-                    list="zone-suggestions"
-                    value={tripInput.dropoffZone}
-                    onChange={(event) => setTextTripField("dropoffZone", event.target.value)}
-                    placeholder="Paris 8, Gare de Lyon..."
-                  />
-                </label>
-                <label className="field">
-                  <span>Ville de départ</span>
-                  <input
-                    type="text"
-                    value={tripInput.pickupCity}
-                    onChange={(event) => setTextTripField("pickupCity", event.target.value)}
-                    placeholder="Paris"
-                  />
-                </label>
-                <label className="field">
-                  <span>Ville d’arrivée</span>
-                  <input
-                    type="text"
-                    value={tripInput.dropoffCity}
-                    onChange={(event) => setTextTripField("dropoffCity", event.target.value)}
-                    placeholder="Paris"
-                  />
-                </label>
-                <label className="field">
-                  <span>Type de zone</span>
-                  <select
-                    value={tripInput.zoneType}
-                    onChange={(event) =>
-                      setTripInput((current) => ({
-                        ...current,
-                        zoneType: event.target.value as TripInput["zoneType"],
-                      }))
-                    }
-                  >
-                    {ZONE_TYPE_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field field--full">
-                  <span>Commentaire</span>
-                  <textarea
-                    rows={3}
-                    value={tripInput.comment}
-                    onChange={(event) => setTextTripField("comment", event.target.value)}
-                    placeholder="Commentaire, stratégie, zone."
-                  />
-                </label>
-                <datalist id="zone-suggestions">
-                  {zoneSuggestions.map((zone) => (
-                    <option key={zone} value={zone} />
-                  ))}
-                </datalist>
-              </div>
-
-              <div className="estimate-strip">
-                <div>
-                  <strong>
-                    {formatNumber(tripTravelEstimate.tripMinutes, " min estimées")}
-                  </strong>
-                  <p>
-                    {tripTravelEstimate.message} Confiance {tripTravelEstimate.confidenceLevel}.
+                  <p className="eyebrow">Proposition en direct</p>
+                  <h2>Analyse instantanée de course</h2>
+                  <p className="section-copy">
+                    Saisissez les informations visibles dans Uber, Bolt, Heetch ou FreeNow.
+                    La décision rentable / limite / refuser se met à jour immédiatement.
                   </p>
                 </div>
-                <button className="ghost-button" type="button" onClick={applyTripEstimate}>
-                  Appliquer
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => resetTripProposal()}
+                >
+                  Nouvelle proposition
                 </button>
               </div>
+
+              <div className={tripPreview ? `live-signal ${tripPreview.decision}` : "live-signal attente"}>
+                <div className="traffic-light" aria-hidden="true">
+                  <span
+                    className={
+                      tripPreview?.decision === "refuser"
+                        ? "traffic-light__lamp red active"
+                        : "traffic-light__lamp red"
+                    }
+                  />
+                  <span
+                    className={
+                      tripPreview?.decision === "limite"
+                        ? "traffic-light__lamp orange active"
+                        : "traffic-light__lamp orange"
+                    }
+                  />
+                  <span
+                    className={
+                      tripPreview?.decision === "accepter"
+                        ? "traffic-light__lamp green active"
+                        : "traffic-light__lamp green"
+                    }
+                  />
+                </div>
+
+                <div className="live-signal__copy">
+                  <span className="decision-banner__label">Décision instantanée</span>
+                  <strong>
+                    {tripPreview ? formatDecisionLabel(tripPreview.decision) : "En attente"}
+                  </strong>
+                  <p>
+                    {tripPreview
+                      ? tripPreview.decisionReason
+                      : "Renseignez le prix, le temps total et les kilomètres pour afficher le feu."}
+                  </p>
+                </div>
+
+                <div className="live-signal__metrics">
+                  <span>{tripPreview ? `${formatCurrency(tripPreview.netHourly)}/h net` : "--"}</span>
+                  <span>{tripPreview ? formatNumber(tripPreview.totalMinutes, " min") : "--"}</span>
+                  <span>{tripPreview ? formatNumber(tripPreview.totalKm, " km") : "--"}</span>
+                </div>
+              </div>
+
+              <div className="group-card">
+                <h3>Plateformes rapides</h3>
+                <div className="platform-quick-grid">
+                  {realtimePlatforms.map((platform) => (
+                    <button
+                      key={platform.id}
+                      className={
+                        platform.id === tripInput.platformProfileId
+                          ? "platform-quick-button active"
+                          : "platform-quick-button"
+                      }
+                      type="button"
+                      onClick={() => selectRealtimePlatform(platform.id)}
+                    >
+                      <strong>{platform.name}</strong>
+                      <span>
+                        {formatNumber(platform.commissionRate, "%")}
+                        {platform.comment ? " • réglable" : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="form-grid">
+                  <label className="field">
+                    <span>Véhicule utilisé</span>
+                    <select
+                      value={tripInput.vehicleProfileId}
+                      onChange={(event) => setTripSelectField("vehicleProfileId", event.target.value)}
+                    >
+                      {vehicles.map((vehicle) => (
+                        <option key={vehicle.id} value={vehicle.id}>
+                          {vehicle.profileName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Prix brut proposé</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tripInput.basePrice}
+                      onChange={(event) => setNumericTripField("basePrice", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Temps approche (min)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={tripInput.approachMinutes}
+                      onChange={(event) => setNumericTripField("approachMinutes", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Temps attente (min)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={tripInput.waitMinutes}
+                      onChange={(event) => setNumericTripField("waitMinutes", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Temps course (min)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={tripInput.tripMinutes}
+                      onChange={(event) => setNumericTripField("tripMinutes", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Km approche</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={tripInput.approachKm}
+                      onChange={(event) => setNumericTripField("approachKm", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Km course</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={tripInput.tripKm}
+                      onChange={(event) => setNumericTripField("tripKm", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Bonus</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tripInput.bonus}
+                      onChange={(event) => setNumericTripField("bonus", event.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className="estimate-strip">
+                  <div>
+                    <strong>{formatNumber(tripTravelEstimate.tripMinutes, " min estimées")}</strong>
+                    <p>
+                      {tripTravelEstimate.message} Confiance {tripTravelEstimate.confidenceLevel}.
+                    </p>
+                  </div>
+                  <div className="chip-row">
+                    <button className="ghost-button" type="button" onClick={applyTripEstimate}>
+                      Appliquer l’estimation
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => resetTripProposal()}
+                    >
+                      Réinitialiser
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <details className="details-panel">
+                <summary>Détails complémentaires</summary>
+                <div className="form-grid">
+                  <label className="field">
+                    <span>Date</span>
+                    <input
+                      type="date"
+                      value={tripInput.date}
+                      onChange={(event) => setTextTripField("date", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Heure</span>
+                    <input
+                      type="time"
+                      value={tripInput.startTime}
+                      onChange={(event) =>
+                        setTripInput((current) => ({
+                          ...current,
+                          startTime: event.target.value,
+                          timeSlot: getTimeSlotFromTime(event.target.value),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Plateforme utilisée</span>
+                    <select
+                      value={tripInput.platformProfileId}
+                      onChange={(event) => setTripSelectField("platformProfileId", event.target.value)}
+                    >
+                      {platforms.map((platform) => (
+                        <option key={platform.id} value={platform.id}>
+                          {platform.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Mode de calcul</span>
+                    <select
+                      value={tripInput.costMode}
+                      onChange={(event) => setTripSelectField("costMode", event.target.value)}
+                    >
+                      {COST_MODE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Pourboire</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tripInput.tip}
+                      onChange={(event) => setNumericTripField("tip", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Péage</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tripInput.toll}
+                      onChange={(event) => setNumericTripField("toll", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Parking</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tripInput.parking}
+                      onChange={(event) => setNumericTripField("parking", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Temps estimé par l’app</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={tripInput.estimatedTripMinutes}
+                      onChange={(event) => setNumericTripField("estimatedTripMinutes", event.target.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Zone de départ</span>
+                    <input
+                      type="text"
+                      list="zone-suggestions"
+                      value={tripInput.pickupZone}
+                      onChange={(event) =>
+                        setTripInput((current) => ({
+                          ...current,
+                          pickupZone: event.target.value,
+                          zone: event.target.value,
+                        }))
+                      }
+                      placeholder="Paris 11, Orly, CDG..."
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Zone d’arrivée</span>
+                    <input
+                      type="text"
+                      list="zone-suggestions"
+                      value={tripInput.dropoffZone}
+                      onChange={(event) => setTextTripField("dropoffZone", event.target.value)}
+                      placeholder="Paris 8, Gare de Lyon..."
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Ville de départ</span>
+                    <input
+                      type="text"
+                      value={tripInput.pickupCity}
+                      onChange={(event) => setTextTripField("pickupCity", event.target.value)}
+                      placeholder="Paris"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Ville d’arrivée</span>
+                    <input
+                      type="text"
+                      value={tripInput.dropoffCity}
+                      onChange={(event) => setTextTripField("dropoffCity", event.target.value)}
+                      placeholder="Paris"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Type de zone</span>
+                    <select
+                      value={tripInput.zoneType}
+                      onChange={(event) =>
+                        setTripInput((current) => ({
+                          ...current,
+                          zoneType: event.target.value as TripInput["zoneType"],
+                        }))
+                      }
+                    >
+                      {ZONE_TYPE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field field--full">
+                    <span>Commentaire</span>
+                    <textarea
+                      rows={3}
+                      value={tripInput.comment}
+                      onChange={(event) => setTextTripField("comment", event.target.value)}
+                      placeholder="Commentaire, stratégie, zone."
+                    />
+                  </label>
+                </div>
+              </details>
+
+              <datalist id="zone-suggestions">
+                {zoneSuggestions.map((zone) => (
+                  <option key={zone} value={zone} />
+                ))}
+              </datalist>
             </article>
 
             {tripPreview && tripVehicle && tripPlatform ? (
