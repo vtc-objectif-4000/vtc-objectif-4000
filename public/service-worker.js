@@ -1,4 +1,4 @@
-const CACHE_NAME = "cap-4000-vtc-v5";
+const CACHE_NAME = "cap-4000-vtc-v6";
 const BASE_PATH = self.location.pathname.replace(/service-worker\.js$/, "");
 const INDEX_PATH = `${BASE_PATH}index.html`;
 const MANIFEST_PATH = `${BASE_PATH}manifest.json`;
@@ -67,6 +67,31 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
         return response;
       });
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const targetUrl = new URL(
+    event.notification.data?.url || BASE_PATH,
+    self.location.origin,
+  ).href;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url === targetUrl) {
+          return client.focus();
+        }
+      }
+
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+
+      return undefined;
     }),
   );
 });

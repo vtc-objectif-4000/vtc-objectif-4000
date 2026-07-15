@@ -647,6 +647,49 @@ export interface GlobalSettings {
   activePlatformProfileId: string | null;
 }
 
+export type NotificationCategory =
+  | "Objectifs"
+  | "Revenus"
+  | "Dépenses"
+  | "Véhicule"
+  | "Entretien"
+  | "Rappels";
+
+export type SmartNotificationType =
+  | "goal-daily-missed"
+  | "monthly-gap-high"
+  | "required-average-rising"
+  | "no-revenue-today"
+  | "high-expense"
+  | "vehicle-deadline"
+  | "end-of-day-review";
+
+export type NotificationSeverity = "info" | "warning" | "critical" | "success";
+
+export interface AppNotification {
+  id: string;
+  key: string;
+  type: SmartNotificationType;
+  category: NotificationCategory;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  readAt: string | null;
+}
+
+export interface NotificationSettings {
+  goalDailyMissed: boolean;
+  monthlyGapHigh: boolean;
+  requiredAverageRising: boolean;
+  noRevenueToday: boolean;
+  highExpense: boolean;
+  vehicleDeadline: boolean;
+  endOfDayReview: boolean;
+  systemNotifications: boolean;
+}
+
 export interface AppSnapshot {
   version: number;
   exportedAt: string;
@@ -810,4 +853,15 @@ export const DEFAULT_PLATFORM_PROFILES: PlatformProfile[] = [
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   activeVehicleProfileId: LEGACY_DEFAULT_VEHICLE_ID,
   activePlatformProfileId: LEGACY_DEFAULT_PLATFORM_ID,
+};
+
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  goalDailyMissed: true,
+  monthlyGapHigh: true,
+  requiredAverageRising: true,
+  noRevenueToday: true,
+  highExpense: true,
+  vehicleDeadline: true,
+  endOfDayReview: true,
+  systemNotifications: false,
 };

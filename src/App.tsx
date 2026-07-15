@@ -43,6 +43,13 @@ import {
   normalizeLegacyOrCurrentSnapshot,
 } from "./lib/calculations";
 import {
+  loadNotificationSettings,
+  loadStoredNotifications,
+  mergeSmartNotifications,
+  saveNotificationSettings,
+  saveStoredNotifications,
+} from "./lib/notifications";
+import {
   AppData,
   clearAllData,
   deleteChargeEntry,
@@ -72,10 +79,12 @@ import {
 } from "./lib/storage";
 import {
   AppSnapshot,
+  AppNotification,
   COST_MODE_OPTIONS,
   ChargeEntry,
   CostMode,
   DEFAULT_GLOBAL_SETTINGS,
+  DEFAULT_NOTIFICATION_SETTINGS,
   DEFAULT_PLATFORM_PROFILES,
   DEPRECIATION_MODE_OPTIONS,
   Decision,
@@ -87,6 +96,8 @@ import {
   LEGACY_DEFAULT_PLATFORM_ID,
   LEGACY_DEFAULT_VEHICLE_ID,
   MONTHLY_TARGET,
+  NotificationCategory,
+  NotificationSettings,
   PLATFORM_STATUS_OPTIONS,
   POSSESSION_MODE_OPTIONS,
   PlatformProfile,
@@ -123,6 +134,7 @@ type TabId =
   | "maintenance"
   | "comparison"
   | "quotes"
+  | "settings"
   | "data";
 
 type Notice = {
@@ -130,7 +142,15 @@ type Notice = {
   message: string;
 };
 
+type ToastNotice = {
+  id: string;
+  tone: "info" | "success" | "warning" | "error";
+  title: string;
+  message: string;
+};
+
 type FilterValue = "all" | string;
+type NotificationFilter = "all" | NotificationCategory;
 
 type PrimaryNavId = "summary" | "trip" | "income" | "expenses" | "profile";
 
@@ -192,9 +212,62 @@ const SECTION_TABS: Record<PrimaryNavId, Array<{ id: TabId; label: string }>> = 
   profile: [
     { id: "vehicles", label: "Profil" },
     { id: "maintenance", label: "Entretien" },
+    { id: "settings", label: "Réglages" },
     { id: "data", label: "Données" },
   ],
 };
+
+const NOTIFICATION_FILTER_OPTIONS: Array<{ value: NotificationFilter; label: string }> = [
+  { value: "all", label: "Toutes" },
+  { value: "Objectifs", label: "Objectifs" },
+  { value: "Revenus", label: "Revenus" },
+  { value: "Dépenses", label: "Dépenses" },
+  { value: "Véhicule", label: "Véhicule" },
+  { value: "Entretien", label: "Entretien" },
+  { value: "Rappels", label: "Rappels" },
+];
+
+const NOTIFICATION_TOGGLE_OPTIONS: Array<{
+  key: Exclude<keyof NotificationSettings, "systemNotifications">;
+  label: string;
+  description: string;
+}> = [
+  {
+    key: "goalDailyMissed",
+    label: "Objectif journalier non atteint",
+    description: "Prévenir quand la journée reste sous votre cible de chiffre d’affaires.",
+  },
+  {
+    key: "monthlyGapHigh",
+    label: "Reste mensuel important",
+    description: "Alerter quand le reste à atteindre devient trop élevé dans le mois.",
+  },
+  {
+    key: "requiredAverageRising",
+    label: "Moyenne journalière en hausse",
+    description: "Signaler quand la moyenne nécessaire par jour grimpe trop vite.",
+  },
+  {
+    key: "noRevenueToday",
+    label: "Aucune recette aujourd’hui",
+    description: "Rappeler qu’aucune course ou recette n’a encore été enregistrée.",
+  },
+  {
+    key: "highExpense",
+    label: "Dépense élevée",
+    description: "Remonter immédiatement les grosses dépenses du jour.",
+  },
+  {
+    key: "vehicleDeadline",
+    label: "Véhicule, entretien et échéances",
+    description: "Alerter sur les indisponibilités et les échéances proches du véhicule.",
+  },
+  {
+    key: "endOfDayReview",
+    label: "Bilan de fin de journée",
+    description: "Rappeler de vérifier vos chiffres avant la fin de la journée.",
+  },
+];
 
 const REALTIME_PLATFORM_IDS = [
   "platform-uber",
@@ -314,6 +387,118 @@ function getPrimaryNavId(tab: TabId): PrimaryNavId {
     default:
       return "profile";
   }
+}
+
+function formatDateTimeLabel(value: string): string {
+  if (!value) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function createToastId(): string {
+  return `toast-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getToastToneFromSeverity(
+  severity: AppNotification["severity"],
+): ToastNotice["tone"] {
+  if (severity === "critical") {
+    return "error";
+  }
+
+  if (severity === "warning") {
+    return "warning";
+  }
+
+  if (severity === "success") {
+    return "success";
+  }
+
+  return "info";
+}
+
+function getNotificationSeverityClass(severity: AppNotification["severity"]): string {
+  if (severity === "critical") {
+    return "a-faire-maintenant";
+  }
+
+  if (severity === "warning") {
+    return "warning";
+  }
+
+  if (severity === "success") {
+    return "ok";
+  }
+
+  return "en-cours";
+}
+
+function getNotificationSeverityLabel(severity: AppNotification["severity"]): string {
+  if (severity === "critical") {
+    return "Urgent";
+  }
+
+  if (severity === "warning") {
+    return "À surveiller";
+  }
+
+  if (severity === "success") {
+    return "Positif";
+  }
+
+  return "Info";
+}
+
+function getSystemNotificationStatusLabel(
+  permission: NotificationPermission | "unsupported",
+  enabled: boolean,
+): string {
+  if (permission === "unsupported") {
+    return "Non disponible sur cet appareil.";
+  }
+
+  if (permission === "denied") {
+    return "Bloquées par l’appareil ou le navigateur.";
+  }
+
+  if (permission === "granted") {
+    return enabled ? "Actives dans la PWA installée." : "Autorisation accordée, activation locale en attente.";
+  }
+
+  return "Autorisation non demandée.";
+}
+
+function areNotificationsEqual(
+  left: AppNotification[],
+  right: AppNotification[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((notification, index) => {
+    const candidate = right[index];
+
+    return (
+      notification.id === candidate.id &&
+      notification.key === candidate.key &&
+      notification.type === candidate.type &&
+      notification.category === candidate.category &&
+      notification.severity === candidate.severity &&
+      notification.title === candidate.title &&
+      notification.message === candidate.message &&
+      notification.createdAt === candidate.createdAt &&
+      notification.updatedAt === candidate.updatedAt &&
+      notification.readAt === candidate.readAt
+    );
+  });
 }
 
 function downloadFile(filename: string, content: string, mimeType: string): void {
@@ -470,6 +655,17 @@ export default function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [deviceState, setDeviceState] = useState({ isAppleMobile: false, isStandalone: false });
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [notificationFilter, setNotificationFilter] =
+    useState<NotificationFilter>("all");
+  const [toastNotices, setToastNotices] = useState<ToastNotice[]>([]);
+  const [systemNotificationPermission, setSystemNotificationPermission] = useState<
+    NotificationPermission | "unsupported"
+  >("default");
+  const [notificationsBootstrapped, setNotificationsBootstrapped] = useState(false);
 
   async function loadAllData() {
     const data = await getAppData();
@@ -629,7 +825,47 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    setNotifications(loadStoredNotifications());
+    setNotificationSettings(loadNotificationSettings());
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setSystemNotificationPermission(window.Notification.permission);
+    } else {
+      setSystemNotificationPermission("unsupported");
+    }
+    setNotificationsBootstrapped(true);
+  }, []);
+
+  useEffect(() => {
+    if (!notificationsBootstrapped) {
+      return;
+    }
+
+    saveStoredNotifications(notifications);
+  }, [notifications, notificationsBootstrapped]);
+
+  useEffect(() => {
+    if (!notificationsBootstrapped) {
+      return;
+    }
+
+    saveNotificationSettings(notificationSettings);
+  }, [notificationSettings, notificationsBootstrapped]);
+
+  useEffect(() => {
+    if (toastNotices.length === 0) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setToastNotices((current) => current.slice(1));
+    }, 4500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [toastNotices]);
+
+  useEffect(() => {
     setQuickActionsOpen(false);
+    setNotificationPanelOpen(false);
   }, [activeTab]);
 
   const activeVehicle = useMemo(() => {
@@ -704,6 +940,12 @@ export default function App() {
     });
   }, [expenses, selectedMonth, dashboardVehicleFilter]);
 
+  const currentMonth = getCurrentMonthValue();
+  const todayDate = getLocalIsoDate();
+  const currentHour = new Date().getHours();
+  const currentMonthTrips = trips.filter((trip) => trip.month === currentMonth);
+  const currentMonthExpenses = expenses.filter((expense) => getMonthFromDate(expense.date) === currentMonth);
+  const currentMonthStats = calculateDashboardStats(currentMonthTrips, currentMonthExpenses, currentMonth);
   const dashboardStats = calculateDashboardStats(visibleTrips, visibleExpenses, selectedMonth);
   const vehiclePerformances = calculateVehiclePerformances(
     vehicles,
@@ -880,6 +1122,80 @@ export default function App() {
     summaryDayTrips.reduce((sum, trip) => sum + trip.netIncome, 0) -
     summaryDayExpenses.reduce((sum, expense) => sum + expense.amountTtc, 0);
   const monthNetAfterExpenses = dashboardStats.netIncome - dashboardStats.totalExpensesMonth;
+  const notificationVehicles = vehicles.filter((vehicle) => vehicle.status !== "Archivé");
+  const notificationObjective = Math.max(
+    notificationVehicles.reduce((sum, vehicle) => sum + vehicle.monthlyRevenueTarget, 0),
+    MONTHLY_TARGET,
+  );
+  const notificationPlannedWorkDays = notificationVehicles.reduce(
+    (sum, vehicle) => sum + Math.max(vehicle.plannedWorkDaysPerMonth || 0, 0),
+    0,
+  );
+  const currentWorkedActiveDays = new Set(currentMonthTrips.map((trip) => trip.date)).size;
+  const currentMonthDays = getDaysForMonth(currentMonth);
+  const currentRemainingGoal = Math.max(notificationObjective - currentMonthStats.grossRevenue, 0);
+  const currentRemainingPlannedDays =
+    notificationPlannedWorkDays > 0
+      ? Math.max(notificationPlannedWorkDays - currentWorkedActiveDays, currentRemainingGoal > 0 ? 1 : 0)
+      : Math.max(currentMonthDays.length - Number(todayDate.slice(-2)) + 1, currentRemainingGoal > 0 ? 1 : 0);
+  const currentRequiredDailyAverage =
+    currentRemainingGoal > 0 ? currentRemainingGoal / Math.max(currentRemainingPlannedDays, 1) : 0;
+  const currentDailyGoalTarget =
+    notificationObjective / Math.max(notificationPlannedWorkDays || 1, 1);
+  const currentDayTrips = currentMonthTrips.filter((trip) => trip.date === todayDate);
+  const currentDayExpenseEntries = currentMonthExpenses.filter((expense) => expense.date === todayDate);
+  const currentDayFuelEntries = fuelEntries.filter((entry) => entry.date === todayDate);
+  const currentDayChargeEntries = chargeEntries.filter((entry) => entry.date === todayDate);
+  const currentDayRevenue = currentDayTrips.reduce((sum, trip) => sum + trip.grossRevenue, 0);
+  const currentDayOutOfPocketExpenses =
+    currentDayExpenseEntries.reduce((sum, expense) => sum + expense.amountTtc, 0) +
+    currentDayFuelEntries.reduce((sum, entry) => sum + entry.amountPaid, 0) +
+    currentDayChargeEntries.reduce((sum, entry) => sum + entry.amountPaid, 0);
+  const currentMonthNetAfterExpenses =
+    currentMonthStats.netIncome - currentMonthStats.totalExpensesMonth;
+  const highExpenseThreshold = Math.max(currentDailyGoalTarget * 0.4, 80);
+  const highExpenseItems = [
+    ...currentDayExpenseEntries
+      .filter((expense) => expense.amountTtc >= highExpenseThreshold)
+      .map((expense) => ({
+        key: `expense-${expense.id}`,
+        title: expense.category,
+        amount: expense.amountTtc,
+        detail: expense.category,
+      })),
+    ...currentDayFuelEntries
+      .filter((entry) => entry.amountPaid >= highExpenseThreshold)
+      .map((entry) => ({
+        key: `fuel-${entry.id}`,
+        title: "Plein carburant",
+        amount: entry.amountPaid,
+        detail: entry.station || "Station",
+      })),
+    ...currentDayChargeEntries
+      .filter((entry) => entry.amountPaid >= highExpenseThreshold)
+      .map((entry) => ({
+        key: `charge-${entry.id}`,
+        title: "Recharge véhicule",
+        amount: entry.amountPaid,
+        detail: entry.location || "Point de charge",
+      })),
+  ];
+  const notificationMaintenanceAlerts = notificationVehicles.flatMap((vehicle) =>
+    buildMaintenanceAlerts(vehicle.currentMileage, vehicle)
+      .filter((alert) => alert.status === "bientot" || alert.status === "maintenant")
+      .map((alert) => ({
+        ...alert,
+        vehicleId: vehicle.id,
+        vehicleName: vehicle.profileName,
+      })),
+  );
+  const notificationVehicleIssues = notificationVehicles.filter(
+    (vehicle) => vehicle.status === "En panne" || vehicle.status === "En réparation",
+  );
+  const unreadNotificationCount = notifications.filter((notification) => notification.readAt === null).length;
+  const filteredNotifications = notifications.filter((notification) =>
+    notificationFilter === "all" ? true : notification.category === notificationFilter,
+  );
   const heroSpotlight =
     activePrimaryNav === "summary"
       ? {
@@ -919,6 +1235,390 @@ export default function App() {
                   ? `${formatInteger(activeVehicle.currentMileage, " km")} • ${activeVehicle.status}`
                   : "Ajoutez un véhicule pour démarrer.",
               };
+
+  function enqueueToast(toast: Omit<ToastNotice, "id">) {
+    setToastNotices((current) =>
+      [...current, { ...toast, id: createToastId() }].slice(-6),
+    );
+  }
+
+  function enqueueNotificationToasts(nextNotifications: AppNotification[]) {
+    if (nextNotifications.length === 0) {
+      return;
+    }
+
+    setToastNotices((current) =>
+      [
+        ...current,
+        ...nextNotifications.map((notification) => ({
+          id: createToastId(),
+          tone: getToastToneFromSeverity(notification.severity),
+          title: notification.title,
+          message: notification.message,
+        })),
+      ].slice(-6),
+    );
+  }
+
+  async function showSystemNotification(notification: AppNotification) {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return;
+    }
+
+    if (window.Notification.permission !== "granted") {
+      return;
+    }
+
+    const notificationUrl = new URL(import.meta.env.BASE_URL, window.location.origin).toString();
+    const notificationOptions: NotificationOptions = {
+      body: notification.message,
+      tag: notification.key,
+      icon: `${import.meta.env.BASE_URL}apple-touch-icon.svg`,
+      badge: `${import.meta.env.BASE_URL}icon.svg`,
+      data: {
+        url: notificationUrl,
+      },
+    };
+
+    try {
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification(notification.title, notificationOptions);
+        return;
+      }
+
+      new window.Notification(notification.title, notificationOptions);
+    } catch {
+      return;
+    }
+  }
+
+  function markNotificationAsRead(notificationId: string) {
+    const now = new Date().toISOString();
+    setNotifications((current) =>
+      current.map((notification) =>
+        notification.id === notificationId && notification.readAt === null
+          ? {
+              ...notification,
+              readAt: now,
+              updatedAt: now,
+            }
+          : notification,
+      ),
+    );
+  }
+
+  function markAllNotificationsAsRead() {
+    const now = new Date().toISOString();
+    setNotifications((current) =>
+      current.map((notification) =>
+        notification.readAt === null
+          ? {
+              ...notification,
+              readAt: now,
+              updatedAt: now,
+            }
+          : notification,
+      ),
+    );
+  }
+
+  function deleteNotification(notificationId: string) {
+    setNotifications((current) =>
+      current.filter((notification) => notification.id !== notificationId),
+    );
+  }
+
+  function toggleNotificationSetting(
+    key: Exclude<keyof NotificationSettings, "systemNotifications">,
+  ) {
+    setNotificationSettings((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  }
+
+  function toggleSystemNotifications(enabled: boolean) {
+    if (!enabled) {
+      setNotificationSettings((current) => ({
+        ...current,
+        systemNotifications: false,
+      }));
+      enqueueToast({
+        tone: "info",
+        title: "Notifications système désactivées",
+        message: "Les alertes restent visibles dans l’application.",
+      });
+      return;
+    }
+
+    void handleEnableSystemNotifications();
+  }
+
+  async function handleEnableSystemNotifications() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setNotice({
+        tone: "warning",
+        message: "Les notifications web ne sont pas disponibles sur cet appareil.",
+      });
+      enqueueToast({
+        tone: "warning",
+        title: "Notifications indisponibles",
+        message: "Cet appareil ou ce navigateur ne permet pas les notifications web.",
+      });
+      return;
+    }
+
+    if (deviceState.isAppleMobile && !deviceState.isStandalone) {
+      setNotice({
+        tone: "warning",
+        message:
+          "Sur iPhone, installez d’abord Cap 4000 VTC sur l’écran d’accueil depuis Safari pour recevoir les notifications web.",
+      });
+      enqueueToast({
+        tone: "warning",
+        title: "Installation requise",
+        message: "Ajoutez l’application à l’écran d’accueil pour activer les notifications sur iPhone.",
+      });
+      return;
+    }
+
+    if (window.Notification.permission === "denied") {
+      setSystemNotificationPermission("denied");
+      setNotice({
+        tone: "warning",
+        message:
+          "Les notifications sont actuellement bloquées. Autorisez-les dans les réglages de votre appareil puis réessayez.",
+      });
+      return;
+    }
+
+    if (window.Notification.permission === "granted") {
+      setSystemNotificationPermission("granted");
+      setNotificationSettings((current) => ({
+        ...current,
+        systemNotifications: true,
+      }));
+      enqueueToast({
+        tone: "success",
+        title: "Notifications activées",
+        message: "Cap 4000 VTC peut maintenant vous prévenir aussi hors ligne.",
+      });
+      return;
+    }
+
+    const permission = await window.Notification.requestPermission();
+    setSystemNotificationPermission(permission);
+
+    if (permission === "granted") {
+      setNotificationSettings((current) => ({
+        ...current,
+        systemNotifications: true,
+      }));
+
+      const now = new Date().toISOString();
+      await showSystemNotification({
+        id: "notification-permission-check",
+        key: "notification-permission-check",
+        type: "end-of-day-review",
+        category: "Rappels",
+        severity: "success",
+        title: "Notifications activées",
+        message: "Cap 4000 VTC vous enverra désormais vos rappels importants.",
+        createdAt: now,
+        updatedAt: now,
+        readAt: null,
+      });
+
+      enqueueToast({
+        tone: "success",
+        title: "Notifications activées",
+        message: "Les rappels PWA sont prêts sur cette application installée.",
+      });
+      return;
+    }
+
+    setNotificationSettings((current) => ({
+      ...current,
+      systemNotifications: false,
+    }));
+    setNotice({
+      tone: "warning",
+      message: "L’autorisation des notifications n’a pas été accordée.",
+    });
+  }
+
+  useEffect(() => {
+    if (loading || !notificationsBootstrapped) {
+      return;
+    }
+
+    const generatedNotifications: Array<
+      Omit<AppNotification, "id" | "createdAt" | "updatedAt" | "readAt">
+    > = [];
+    const currentDayOfMonth = Number(todayDate.slice(-2));
+
+    if (
+      notificationSettings.goalDailyMissed &&
+      currentHour >= 15 &&
+      currentDailyGoalTarget > 0 &&
+      currentDayRevenue > 0 &&
+      currentDayRevenue < currentDailyGoalTarget
+    ) {
+      generatedNotifications.push({
+        key: `goal-daily-missed-${todayDate}`,
+        type: "goal-daily-missed",
+        category: "Objectifs",
+        severity: "warning",
+        title: "Objectif journalier non atteint",
+        message: `Vous êtes à ${formatCurrency(currentDayRevenue)} aujourd’hui pour un objectif de ${formatCurrency(currentDailyGoalTarget)}.`,
+      });
+    }
+
+    if (
+      notificationSettings.monthlyGapHigh &&
+      currentDayOfMonth >= 10 &&
+      currentRemainingGoal > notificationObjective * 0.45
+    ) {
+      generatedNotifications.push({
+        key: `monthly-gap-high-${currentMonth}`,
+        type: "monthly-gap-high",
+        category: "Objectifs",
+        severity: "critical",
+        title: "Reste mensuel encore élevé",
+        message: `Il reste ${formatCurrency(currentRemainingGoal)} à atteindre sur ${formatMonthLabel(currentMonth)}.`,
+      });
+    }
+
+    if (
+      notificationSettings.requiredAverageRising &&
+      currentRemainingGoal > 0 &&
+      currentRequiredDailyAverage > currentDailyGoalTarget * 1.15
+    ) {
+      generatedNotifications.push({
+        key: `required-average-rising-${currentMonth}`,
+        type: "required-average-rising",
+        category: "Objectifs",
+        severity: "warning",
+        title: "Moyenne journalière nécessaire en hausse",
+        message: `Il faut désormais viser ${formatCurrency(currentRequiredDailyAverage)} par jour actif pour tenir l’objectif du mois.`,
+      });
+    }
+
+    if (
+      notificationSettings.noRevenueToday &&
+      currentHour >= 12 &&
+      currentDayRevenue <= 0
+    ) {
+      generatedNotifications.push({
+        key: `no-revenue-today-${todayDate}`,
+        type: "no-revenue-today",
+        category: "Revenus",
+        severity: "warning",
+        title: "Aucune recette enregistrée aujourd’hui",
+        message: "Aucune course ni recette n’a encore été enregistrée pour aujourd’hui.",
+      });
+    }
+
+    if (notificationSettings.highExpense) {
+      highExpenseItems.forEach((item) => {
+        generatedNotifications.push({
+          key: `high-expense-${item.key}`,
+          type: "high-expense",
+          category: "Dépenses",
+          severity: item.amount >= highExpenseThreshold * 1.8 ? "critical" : "warning",
+          title: "Dépense élevée détectée",
+          message: `${item.title} : ${formatCurrency(item.amount)} TTC${item.detail ? ` • ${item.detail}` : ""}.`,
+        });
+      });
+    }
+
+    if (notificationSettings.vehicleDeadline) {
+      notificationVehicleIssues.forEach((vehicle) => {
+        generatedNotifications.push({
+          key: `vehicle-issue-${vehicle.id}-${vehicle.status}`,
+          type: "vehicle-deadline",
+          category: "Véhicule",
+          severity: "critical",
+          title: "Véhicule non disponible",
+          message: `${vehicle.profileName} est actuellement en statut "${vehicle.status}" et n’est pas disponible pour travailler.`,
+        });
+      });
+
+      notificationMaintenanceAlerts.forEach((alert) => {
+        generatedNotifications.push({
+          key: `maintenance-alert-${alert.vehicleId}-${alert.label}-${alert.status}`,
+          type: "vehicle-deadline",
+          category: "Entretien",
+          severity: alert.status === "maintenant" ? "critical" : "warning",
+          title: `${alert.vehicleName} • ${alert.label}`,
+          message:
+            alert.status === "maintenant"
+              ? `${alert.label} à faire maintenant sur ${alert.vehicleName}. Prochaine échéance prévue vers ${formatInteger(alert.nextKm, " km")}.`
+              : `${alert.label} bientôt à prévoir sur ${alert.vehicleName}. Il reste environ ${formatInteger(Math.max(alert.remainingKm, 0), " km")} avant l’échéance de ${formatInteger(alert.nextKm, " km")}.`,
+        });
+      });
+    }
+
+    if (
+      notificationSettings.endOfDayReview &&
+      currentHour >= 21 &&
+      (currentDayRevenue > 0 || currentDayOutOfPocketExpenses > 0)
+    ) {
+      generatedNotifications.push({
+        key: `end-of-day-review-${todayDate}`,
+        type: "end-of-day-review",
+        category: "Rappels",
+        severity: "info",
+        title: "Bilan de fin de journée",
+        message: `Pensez à clôturer la journée : ${formatCurrency(currentDayRevenue)} de recettes et ${formatCurrency(currentDayOutOfPocketExpenses)} de dépenses aujourd’hui.`,
+      });
+    }
+
+    if (generatedNotifications.length === 0) {
+      return;
+    }
+
+    const {
+      notifications: mergedNotifications,
+      newNotifications,
+    } = mergeSmartNotifications(notifications, generatedNotifications);
+
+    if (!areNotificationsEqual(mergedNotifications, notifications)) {
+      setNotifications(mergedNotifications);
+    }
+
+    if (newNotifications.length > 0) {
+      enqueueNotificationToasts(newNotifications);
+      if (
+        notificationSettings.systemNotifications &&
+        systemNotificationPermission === "granted"
+      ) {
+        void Promise.all(
+          newNotifications.slice(0, 3).map((notification) => showSystemNotification(notification)),
+        );
+      }
+    }
+  }, [
+    currentDailyGoalTarget,
+    currentDayOutOfPocketExpenses,
+    currentDayRevenue,
+    currentHour,
+    currentMonth,
+    currentRemainingGoal,
+    currentRequiredDailyAverage,
+    highExpenseItems,
+    highExpenseThreshold,
+    loading,
+    notificationMaintenanceAlerts,
+    notificationObjective,
+    notificationSettings,
+    notificationVehicleIssues,
+    notifications,
+    notificationsBootstrapped,
+    systemNotificationPermission,
+    todayDate,
+  ]);
 
   function setNumericTripField(field: keyof TripInput, rawValue: string) {
     setTripInput((current) => ({
@@ -2179,9 +2879,30 @@ export default function App() {
                 <p className="eyebrow">Cap 4000 VTC</p>
                 <h1>{activePrimaryNavItem.title}</h1>
               </div>
-              <span className="hero-status-pill">
-                {deviceState.isStandalone ? "Mode app" : "PWA iPhone"}
-              </span>
+              <div className="hero-actions">
+                <span className="hero-status-pill">
+                  {deviceState.isStandalone ? "Mode app" : "PWA iPhone"}
+                </span>
+                <button
+                  className={`notification-bell${notificationPanelOpen ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setNotificationPanelOpen((current) => !current)}
+                  aria-expanded={notificationPanelOpen}
+                  aria-label={
+                    unreadNotificationCount > 0
+                      ? `${unreadNotificationCount} notifications non lues`
+                      : "Ouvrir les notifications"
+                  }
+                >
+                  <span className="notification-bell__icon" aria-hidden="true" />
+                  <span className="notification-bell__text">Notifications</span>
+                  {unreadNotificationCount > 0 ? (
+                    <span className="notification-bell__badge">
+                      {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
             </div>
             <p className="hero-copy">
               {activePrimaryNavItem.description}
@@ -2260,6 +2981,113 @@ export default function App() {
               </button>
             ))}
           </nav>
+        ) : null}
+
+        {notificationPanelOpen ? (
+          <section className="panel-card notification-panel">
+            <div className="notification-panel__header">
+              <div>
+                <p className="eyebrow">Centre de notifications</p>
+                <h2>Notifications</h2>
+                <p className="section-copy">
+                  {unreadNotificationCount > 0
+                    ? `${formatInteger(unreadNotificationCount)} non lue(s) à traiter.`
+                    : "Tout est à jour pour le moment."}
+                </p>
+              </div>
+              <div className="notification-panel__actions">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={markAllNotificationsAsRead}
+                  disabled={unreadNotificationCount === 0}
+                >
+                  Tout marquer comme lu
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => setNotificationPanelOpen(false)}
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+
+            <div className="notification-filter-row" aria-label="Filtres notifications">
+              {NOTIFICATION_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  className={
+                    option.value === notificationFilter
+                      ? "notification-filter-chip active"
+                      : "notification-filter-chip"
+                  }
+                  type="button"
+                  onClick={() => setNotificationFilter(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="stack-list">
+              {filteredNotifications.length === 0 ? (
+                <p className="empty-copy notification-empty">
+                  Aucune notification dans cette catégorie.
+                </p>
+              ) : (
+                filteredNotifications.map((notification) => (
+                  <article
+                    key={notification.id}
+                    className={`list-card list-card--notification${
+                      notification.readAt === null ? " unread" : ""
+                    }`}
+                  >
+                    <div className="list-card__header">
+                      <div>
+                        <div className="notification-meta">
+                          <span className="status-chip notification-category-chip">
+                            {notification.category}
+                          </span>
+                          <span
+                            className={`status-chip ${getNotificationSeverityClass(notification.severity)}`}
+                          >
+                            {getNotificationSeverityLabel(notification.severity)}
+                          </span>
+                        </div>
+                        <strong>{notification.title}</strong>
+                        <p>{notification.message}</p>
+                      </div>
+                      <div className="notification-time">
+                        <span>{formatDateTimeLabel(notification.updatedAt)}</span>
+                        <span>{notification.readAt ? "Lue" : "Nouvelle"}</span>
+                      </div>
+                    </div>
+
+                    <div className="notification-actions">
+                      {notification.readAt === null ? (
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => markNotificationAsRead(notification.id)}
+                        >
+                          Marquer comme lue
+                        </button>
+                      ) : null}
+                      <button
+                        className="ghost-button danger-text"
+                        type="button"
+                        onClick={() => deleteNotification(notification.id)}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
         ) : null}
 
         {notice ? (
@@ -5755,6 +6583,121 @@ export default function App() {
           </section>
         ) : null}
 
+        {!loading && activeTab === "settings" ? (
+          <section className="panel-stack">
+            <article className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Réglages</p>
+                  <h2>Notifications intelligentes</h2>
+                  <p className="section-copy">
+                    Activez uniquement les alertes utiles à votre pilotage quotidien.
+                  </p>
+                </div>
+              </div>
+
+              <div className="stack-list">
+                {NOTIFICATION_TOGGLE_OPTIONS.map((option) => (
+                  <label key={option.key} className="inline-check settings-toggle">
+                    <div>
+                      <strong>{option.label}</strong>
+                      <p className="section-copy">{option.description}</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={notificationSettings[option.key]}
+                      onChange={() => toggleNotificationSetting(option.key)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">PWA</p>
+                  <h2>Notifications système</h2>
+                  <p className="section-copy">
+                    Les alertes internes restent disponibles dans l’application. Les notifications
+                    système nécessitent une autorisation explicite.
+                  </p>
+                </div>
+              </div>
+
+              <div className="group-card notification-system-card">
+                <div className="notification-system-card__row">
+                  <div>
+                    <strong>État actuel</strong>
+                    <p className="section-copy">
+                      {getSystemNotificationStatusLabel(
+                        systemNotificationPermission,
+                        notificationSettings.systemNotifications,
+                      )}
+                    </p>
+                  </div>
+                  <span
+                    className={`status-chip ${
+                      systemNotificationPermission === "granted" &&
+                      notificationSettings.systemNotifications
+                        ? "ok"
+                        : systemNotificationPermission === "denied"
+                          ? "warning"
+                          : "en-cours"
+                    }`}
+                  >
+                    {systemNotificationPermission === "granted" &&
+                    notificationSettings.systemNotifications
+                      ? "Actives"
+                      : systemNotificationPermission === "denied"
+                        ? "Bloquées"
+                        : "En attente"}
+                  </span>
+                </div>
+
+                <label className="inline-check settings-toggle">
+                  <div>
+                    <strong>Recevoir aussi les notifications web</strong>
+                    <p className="section-copy">
+                      Utilise la PWA installée pour afficher les rappels hors ligne et en arrière-plan.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={
+                      systemNotificationPermission === "granted" &&
+                      notificationSettings.systemNotifications
+                    }
+                    disabled={systemNotificationPermission !== "granted"}
+                    onChange={(event) => toggleSystemNotifications(event.target.checked)}
+                  />
+                </label>
+
+                <div className="action-stack">
+                  <button
+                    className="primary-button neutral"
+                    type="button"
+                    onClick={() => void handleEnableSystemNotifications()}
+                    disabled={
+                      systemNotificationPermission === "granted" &&
+                      notificationSettings.systemNotifications
+                    }
+                  >
+                    Activer les notifications
+                  </button>
+                </div>
+
+                {deviceState.isAppleMobile ? (
+                  <p className="field-note">
+                    Sur iPhone, les notifications web nécessitent Safari et l’installation de Cap
+                    4000 VTC sur l’écran d’accueil.
+                  </p>
+                ) : null}
+              </div>
+            </article>
+          </section>
+        ) : null}
+
         {!loading && activeTab === "data" ? (
           <section className="panel-stack">
             <article className="panel-card">
@@ -5818,6 +6761,15 @@ export default function App() {
             </article>
           </section>
         ) : null}
+
+        <div className="toast-stack" aria-live="polite" aria-atomic="true">
+          {toastNotices.map((toast) => (
+            <article key={toast.id} className={`toast-card ${toast.tone}`}>
+              <strong>{toast.title}</strong>
+              <p>{toast.message}</p>
+            </article>
+          ))}
+        </div>
 
         <nav className="tab-strip" aria-label="Navigation principale">
           {PRIMARY_NAV_ITEMS.map((item) => (
