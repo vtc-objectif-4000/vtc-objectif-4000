@@ -607,6 +607,14 @@ textarea {
   margin: 0;
 }
 
+.activity-state-card {
+  margin-top: 18px;
+}
+
+.activity-state-card .progress-card {
+  margin-top: 8px;
+}
+
 .profile-banner {
   display: flex;
   justify-content: space-between;
@@ -1505,6 +1513,11 @@ textarea {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+}
+
+.retain-button {
+  width: auto;
+  min-width: 210px;
 }
 
 .toast-stack {

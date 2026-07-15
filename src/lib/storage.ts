@@ -1,5 +1,6 @@
 import {
   buildExportSnapshot,
+  normalizeActivityEntry,
   createLegacyVehicleProfile,
   getDefaultPlatformProfiles,
   normalizeChargeEntry,
@@ -8,14 +9,17 @@ import {
   normalizeGlobalSettings,
   normalizeLegacyOrCurrentSnapshot,
   normalizePlatformProfile,
+  normalizeRecoveryScenarioEntry,
   normalizeRepairEntry,
   normalizeRepairPartEntry,
   normalizeQuoteEntry,
   normalizeReminderEntry,
+  normalizeRentalOfferEntry,
   normalizeTripRecord,
   normalizeVehicleProfile,
 } from "./calculations";
 import {
+  ActivityEntry,
   AppSnapshot,
   ChargeEntry,
   ExpenseEntry,
@@ -23,16 +27,18 @@ import {
   GlobalSettings,
   LEGACY_DEFAULT_PLATFORM_ID,
   PlatformProfile,
+  RecoveryScenarioEntry,
   RepairEntry,
   RepairPartEntry,
   QuoteEntry,
   ReminderEntry,
+  RentalOfferEntry,
   TripRecord,
   VehicleProfile,
 } from "../types";
 
 const DB_NAME = "cap-4000-vtc";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const LEGACY_SETTINGS_STORE = "settings";
 const TRIPS_STORE = "trips";
 const META_STORE = "meta";
@@ -45,6 +51,9 @@ const REPAIRS_STORE = "repairEntries";
 const REPAIR_PARTS_STORE = "repairPartEntries";
 const QUOTES_STORE = "quoteEntries";
 const REMINDERS_STORE = "reminderEntries";
+const ACTIVITY_STORE = "activityEntries";
+const RENTAL_OFFERS_STORE = "rentalOffers";
+const RECOVERY_SCENARIOS_STORE = "recoveryScenarios";
 const APP_SETTINGS_KEY = "app-settings";
 const LEGACY_VEHICLE_SETTINGS_KEY = "vehicle-settings";
 const LEGACY_MAINTENANCE_SETTINGS_KEY = "maintenance-settings";
@@ -67,6 +76,9 @@ export interface AppData {
   repairPartEntries: RepairPartEntry[];
   quoteEntries: QuoteEntry[];
   reminderEntries: ReminderEntry[];
+  activityEntries: ActivityEntry[];
+  rentalOffers: RentalOfferEntry[];
+  recoveryScenarios: RecoveryScenarioEntry[];
   trips: TripRecord[];
 }
 
@@ -129,6 +141,18 @@ function openDatabase(): Promise<IDBDatabase> {
 
       if (!database.objectStoreNames.contains(REMINDERS_STORE)) {
         database.createObjectStore(REMINDERS_STORE, { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains(ACTIVITY_STORE)) {
+        database.createObjectStore(ACTIVITY_STORE, { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains(RENTAL_OFFERS_STORE)) {
+        database.createObjectStore(RENTAL_OFFERS_STORE, { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains(RECOVERY_SCENARIOS_STORE)) {
+        database.createObjectStore(RECOVERY_SCENARIOS_STORE, { keyPath: "id" });
       }
     };
 
@@ -212,6 +236,9 @@ export async function getAppData(): Promise<AppData> {
     repairPartsRaw,
     quotesRaw,
     remindersRaw,
+    activityRaw,
+    rentalOffersRaw,
+    recoveryScenariosRaw,
     tripsRaw,
   ] = await Promise.all([
     getAllFromStore<unknown>(database, VEHICLES_STORE),
@@ -223,6 +250,9 @@ export async function getAppData(): Promise<AppData> {
     getAllFromStore<unknown>(database, REPAIR_PARTS_STORE),
     getAllFromStore<unknown>(database, QUOTES_STORE),
     getAllFromStore<unknown>(database, REMINDERS_STORE),
+    getAllFromStore<unknown>(database, ACTIVITY_STORE),
+    getAllFromStore<unknown>(database, RENTAL_OFFERS_STORE),
+    getAllFromStore<unknown>(database, RECOVERY_SCENARIOS_STORE),
     getAllFromStore<unknown>(database, TRIPS_STORE),
   ]);
 
@@ -257,6 +287,9 @@ export async function getAppData(): Promise<AppData> {
     repairPartEntries: repairPartsRaw.map(normalizeRepairPartEntry),
     quoteEntries: quotesRaw.map(normalizeQuoteEntry),
     reminderEntries: remindersRaw.map(normalizeReminderEntry),
+    activityEntries: activityRaw.map(normalizeActivityEntry),
+    rentalOffers: rentalOffersRaw.map(normalizeRentalOfferEntry),
+    recoveryScenarios: recoveryScenariosRaw.map(normalizeRecoveryScenarioEntry),
     trips: tripsRaw.map((trip) => normalizeTripRecord(trip, fallbackVehicle, fallbackPlatform)),
   };
 }
@@ -359,6 +392,42 @@ export async function deleteReminderEntry(reminderId: string): Promise<void> {
   await deleteFromStore(database, REMINDERS_STORE, reminderId);
 }
 
+export async function saveActivityEntry(activity: ActivityEntry): Promise<void> {
+  const database = await openDatabase();
+  await putInStore(database, ACTIVITY_STORE, normalizeActivityEntry(activity));
+}
+
+export async function deleteActivityEntry(activityId: string): Promise<void> {
+  const database = await openDatabase();
+  await deleteFromStore(database, ACTIVITY_STORE, activityId);
+}
+
+export async function saveRentalOffer(rentalOffer: RentalOfferEntry): Promise<void> {
+  const database = await openDatabase();
+  await putInStore(database, RENTAL_OFFERS_STORE, normalizeRentalOfferEntry(rentalOffer));
+}
+
+export async function deleteRentalOffer(rentalOfferId: string): Promise<void> {
+  const database = await openDatabase();
+  await deleteFromStore(database, RENTAL_OFFERS_STORE, rentalOfferId);
+}
+
+export async function saveRecoveryScenario(
+  recoveryScenario: RecoveryScenarioEntry,
+): Promise<void> {
+  const database = await openDatabase();
+  await putInStore(
+    database,
+    RECOVERY_SCENARIOS_STORE,
+    normalizeRecoveryScenarioEntry(recoveryScenario),
+  );
+}
+
+export async function deleteRecoveryScenario(recoveryScenarioId: string): Promise<void> {
+  const database = await openDatabase();
+  await deleteFromStore(database, RECOVERY_SCENARIOS_STORE, recoveryScenarioId);
+}
+
 export async function saveTrip(trip: TripRecord): Promise<void> {
   const database = await openDatabase();
   const appData = await getAppData();
@@ -422,6 +491,9 @@ export async function clearAllData(): Promise<void> {
       REPAIR_PARTS_STORE,
       QUOTES_STORE,
       REMINDERS_STORE,
+      ACTIVITY_STORE,
+      RENTAL_OFFERS_STORE,
+      RECOVERY_SCENARIOS_STORE,
       TRIPS_STORE,
     ],
     "readwrite",
@@ -438,6 +510,9 @@ export async function clearAllData(): Promise<void> {
   await requestToPromise(transaction.objectStore(REPAIR_PARTS_STORE).clear());
   await requestToPromise(transaction.objectStore(QUOTES_STORE).clear());
   await requestToPromise(transaction.objectStore(REMINDERS_STORE).clear());
+  await requestToPromise(transaction.objectStore(ACTIVITY_STORE).clear());
+  await requestToPromise(transaction.objectStore(RENTAL_OFFERS_STORE).clear());
+  await requestToPromise(transaction.objectStore(RECOVERY_SCENARIOS_STORE).clear());
   await requestToPromise(transaction.objectStore(TRIPS_STORE).clear());
 
   await transactionToPromise(transaction);
@@ -456,6 +531,9 @@ export async function exportSnapshot(): Promise<AppSnapshot> {
     data.repairPartEntries,
     data.quoteEntries,
     data.reminderEntries,
+    data.activityEntries,
+    data.rentalOffers,
+    data.recoveryScenarios,
     data.trips,
   );
 }
@@ -475,6 +553,9 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
       REPAIR_PARTS_STORE,
       QUOTES_STORE,
       REMINDERS_STORE,
+      ACTIVITY_STORE,
+      RENTAL_OFFERS_STORE,
+      RECOVERY_SCENARIOS_STORE,
       TRIPS_STORE,
     ],
     "readwrite",
@@ -489,6 +570,9 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
   const repairPartsStore = transaction.objectStore(REPAIR_PARTS_STORE);
   const quotesStore = transaction.objectStore(QUOTES_STORE);
   const remindersStore = transaction.objectStore(REMINDERS_STORE);
+  const activityStore = transaction.objectStore(ACTIVITY_STORE);
+  const rentalOffersStore = transaction.objectStore(RENTAL_OFFERS_STORE);
+  const recoveryScenariosStore = transaction.objectStore(RECOVERY_SCENARIOS_STORE);
   const tripsStore = transaction.objectStore(TRIPS_STORE);
 
   await requestToPromise(metaStore.clear());
@@ -501,6 +585,9 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
   await requestToPromise(repairPartsStore.clear());
   await requestToPromise(quotesStore.clear());
   await requestToPromise(remindersStore.clear());
+  await requestToPromise(activityStore.clear());
+  await requestToPromise(rentalOffersStore.clear());
+  await requestToPromise(recoveryScenariosStore.clear());
   await requestToPromise(tripsStore.clear());
 
   await requestToPromise(
@@ -544,6 +631,18 @@ export async function importSnapshot(rawSnapshot: unknown): Promise<void> {
 
   for (const reminderEntry of normalized.reminderEntries) {
     await requestToPromise(remindersStore.put(reminderEntry));
+  }
+
+  for (const activityEntry of normalized.activityEntries) {
+    await requestToPromise(activityStore.put(activityEntry));
+  }
+
+  for (const rentalOffer of normalized.rentalOffers) {
+    await requestToPromise(rentalOffersStore.put(rentalOffer));
+  }
+
+  for (const recoveryScenario of normalized.recoveryScenarios) {
+    await requestToPromise(recoveryScenariosStore.put(recoveryScenario));
   }
 
   for (const trip of normalized.trips) {

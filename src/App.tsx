@@ -1,5 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  createActivityEntry,
   buildExportSnapshot,
   buildEngineChangeReminders,
   buildImportantReminders,
@@ -22,8 +23,10 @@ import {
   createFuelEntry,
   createPlatformProfile,
   createQuoteEntry,
+  createRecoveryScenarioEntry,
   createRepairEntry,
   createRepairPartEntry,
+  createRentalOfferEntry,
   createReminderEntry,
   createTimestamp,
   createTripInput,
@@ -50,6 +53,14 @@ import {
   saveStoredNotifications,
 } from "./lib/notifications";
 import {
+  calculateForcedInactivityMetrics,
+  calculateRecoveryScenarioMetrics,
+  calculateRentalOfferMetrics,
+  getSuspendedDatesForMonth,
+  isDateWithinRange,
+} from "./lib/recovery";
+import {
+  deleteActivityEntry,
   AppData,
   clearAllData,
   deleteChargeEntry,
@@ -57,27 +68,35 @@ import {
   deleteFuelEntry,
   deletePlatformProfile,
   deleteQuoteEntry,
+  deleteRecoveryScenario,
   deleteRepairEntry,
   deleteRepairPartEntry,
+  deleteRentalOffer,
   deleteReminderEntry,
   deleteTripsForMonth,
   deleteVehicleProfile,
   exportSnapshot,
   getAppData,
   importSnapshot,
+  saveActivityEntry,
   saveChargeEntry,
   saveExpenseEntry,
   saveFuelEntry,
   saveGlobalSettings,
   savePlatformProfile,
   saveQuoteEntry,
+  saveRecoveryScenario,
   saveRepairEntry,
   saveRepairPartEntry,
+  saveRentalOffer,
   saveReminderEntry,
   saveTrip,
   saveVehicleProfile,
 } from "./lib/storage";
 import {
+  ACTIVITY_STATUS_OPTIONS,
+  ActivityEntry,
+  ActivityStatus,
   AppSnapshot,
   AppNotification,
   COST_MODE_OPTIONS,
@@ -106,6 +125,8 @@ import {
   QUOTE_STATUS_OPTIONS,
   QUOTE_TRIP_TYPE_OPTIONS,
   QuoteEntry,
+  RECOVERY_SCENARIO_STATUS_OPTIONS,
+  RECOVERY_SCENARIO_TYPE_OPTIONS,
   REPAIR_CATEGORY_OPTIONS,
   REPAIR_PART_STATUS_OPTIONS,
   REPAIR_PRIORITY_OPTIONS,
@@ -115,6 +136,9 @@ import {
   REMINDER_TRIGGER_OPTIONS,
   REMINDER_TYPE_OPTIONS,
   ReminderEntry,
+  RecoveryScenarioEntry,
+  RENTAL_POWERTRAIN_OPTIONS,
+  RentalOfferEntry,
   TripInput,
   TripRecord,
   VEHICLE_STATUS_OPTIONS,
@@ -134,6 +158,7 @@ type TabId =
   | "maintenance"
   | "comparison"
   | "quotes"
+  | "recovery"
   | "settings"
   | "data";
 
@@ -212,6 +237,7 @@ const SECTION_TABS: Record<PrimaryNavId, Array<{ id: TabId; label: string }>> = 
   profile: [
     { id: "vehicles", label: "Profil" },
     { id: "maintenance", label: "Entretien" },
+    { id: "recovery", label: "Reprise" },
     { id: "settings", label: "Réglages" },
     { id: "data", label: "Données" },
   ],
@@ -529,7 +555,10 @@ function isSnapshotLike(value: unknown): value is AppSnapshot {
     Array.isArray(candidate.repairEntries) ||
     Array.isArray(candidate.repairPartEntries) ||
     Array.isArray(candidate.quoteEntries) ||
-    Array.isArray(candidate.reminderEntries);
+    Array.isArray(candidate.reminderEntries) ||
+    Array.isArray(candidate.activityEntries) ||
+    Array.isArray(candidate.rentalOffers) ||
+    Array.isArray(candidate.recoveryScenarios);
 
   if (!hasRecognizedShape) {
     return false;
@@ -625,6 +654,9 @@ export default function App() {
   const [repairPartEntries, setRepairPartEntries] = useState<RepairPartEntry[]>([]);
   const [quoteEntries, setQuoteEntries] = useState<QuoteEntry[]>([]);
   const [reminderEntries, setReminderEntries] = useState<ReminderEntry[]>([]);
+  const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([]);
+  const [rentalOffers, setRentalOffers] = useState<RentalOfferEntry[]>([]);
+  const [recoveryScenarios, setRecoveryScenarios] = useState<RecoveryScenarioEntry[]>([]);
   const [trips, setTrips] = useState<TripRecord[]>([]);
   const [tripInput, setTripInput] = useState<TripInput>(
     createTripInput(LEGACY_DEFAULT_VEHICLE_ID, LEGACY_DEFAULT_PLATFORM_ID, "estimé"),
@@ -646,6 +678,23 @@ export default function App() {
   );
   const [repairPartDraft, setRepairPartDraft] = useState<RepairPartEntry>(createRepairPartEntry());
   const [reminderDraft, setReminderDraft] = useState<ReminderEntry>(createReminderEntry());
+  const [activityDraft, setActivityDraft] = useState<ActivityEntry>(
+    createActivityEntry({
+      vehicleId: LEGACY_DEFAULT_VEHICLE_ID,
+      startDate: getLocalIsoDate(),
+    }),
+  );
+  const [rentalOfferDraft, setRentalOfferDraft] = useState<RentalOfferEntry>(
+    createRentalOfferEntry({
+      availableFrom: getLocalIsoDate(),
+    }),
+  );
+  const [recoveryScenarioDraft, setRecoveryScenarioDraft] = useState<RecoveryScenarioEntry>(
+    createRecoveryScenarioEntry({
+      linkedVehicleId: LEGACY_DEFAULT_VEHICLE_ID,
+      possibleResumeDate: getLocalIsoDate(),
+    }),
+  );
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(getLocalIsoDate());
   const [selectedVehicleEditorId, setSelectedVehicleEditorId] = useState<string | null>(null);
   const [selectedPlatformEditorId, setSelectedPlatformEditorId] = useState<string | null>(null);
@@ -685,6 +734,9 @@ export default function App() {
     });
     const sortedQuoteEntries = sortByUpdatedAtDesc(data.quoteEntries);
     const sortedReminderEntries = sortByUpdatedAtDesc(data.reminderEntries);
+    const sortedActivityEntries = sortByUpdatedAtDesc(data.activityEntries);
+    const sortedRentalOffers = sortByUpdatedAtDesc(data.rentalOffers);
+    const sortedRecoveryScenarios = sortByUpdatedAtDesc(data.recoveryScenarios);
     const sortedTrips = sortTripsDescending(data.trips);
 
     setVehicles(sortedVehicles);
@@ -696,6 +748,9 @@ export default function App() {
     setRepairPartEntries(sortedRepairPartEntries);
     setQuoteEntries(sortedQuoteEntries);
     setReminderEntries(sortedReminderEntries);
+    setActivityEntries(sortedActivityEntries);
+    setRentalOffers(sortedRentalOffers);
+    setRecoveryScenarios(sortedRecoveryScenarios);
     setTrips(sortedTrips);
 
     const activeVehicle =
@@ -704,9 +759,21 @@ export default function App() {
     const activePlatform =
       sortedPlatforms.find((platform) => platform.id === data.globalSettings.activePlatformProfileId) ??
       sortedPlatforms[0];
+    const activeActivityEntry =
+      sortedActivityEntries.find((entry) => entry.id === data.globalSettings.activeActivityEntryId) ??
+      sortedActivityEntries[0] ??
+      null;
+    const retainedRecoveryScenario =
+      sortedRecoveryScenarios.find(
+        (scenario) => scenario.id === data.globalSettings.retainedRecoveryScenarioId,
+      ) ?? null;
     const nextGlobalSettings: GlobalSettings = {
+      ...data.globalSettings,
       activeVehicleProfileId: activeVehicle?.id ?? null,
       activePlatformProfileId: activePlatform?.id ?? null,
+      activeActivityEntryId: activeActivityEntry?.id ?? data.globalSettings.activeActivityEntryId,
+      retainedRecoveryScenarioId:
+        retainedRecoveryScenario?.id ?? data.globalSettings.retainedRecoveryScenarioId,
     };
 
     setGlobalSettings(nextGlobalSettings);
@@ -775,6 +842,47 @@ export default function App() {
       ...current,
       vehicleProfileId: activeVehicle?.id ?? current.vehicleProfileId,
     }));
+    setActivityDraft((current) => {
+      if (current.id && sortedActivityEntries.some((entry) => entry.id === current.id)) {
+        return sortedActivityEntries.find((entry) => entry.id === current.id) ?? current;
+      }
+
+      return (
+        activeActivityEntry ??
+        createActivityEntry({
+          status: nextGlobalSettings.activityStatus,
+          vehicleId: activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID,
+          startDate: getLocalIsoDate(),
+          estimatedResumeDate: getLocalIsoDate(),
+        })
+      );
+    });
+    setRentalOfferDraft((current) => {
+      if (current.id && sortedRentalOffers.some((offer) => offer.id === current.id)) {
+        return sortedRentalOffers.find((offer) => offer.id === current.id) ?? current;
+      }
+
+      return (
+        sortedRentalOffers[0] ??
+        createRentalOfferEntry({
+          availableFrom: getLocalIsoDate(),
+        })
+      );
+    });
+    setRecoveryScenarioDraft((current) => {
+      if (current.id && sortedRecoveryScenarios.some((scenario) => scenario.id === current.id)) {
+        return sortedRecoveryScenarios.find((scenario) => scenario.id === current.id) ?? current;
+      }
+
+      return (
+        retainedRecoveryScenario ??
+        sortedRecoveryScenarios[0] ??
+        createRecoveryScenarioEntry({
+          linkedVehicleId: activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID,
+          possibleResumeDate: getLocalIsoDate(),
+        })
+      );
+    });
   }
 
   useEffect(() => {
@@ -943,10 +1051,52 @@ export default function App() {
   const currentMonth = getCurrentMonthValue();
   const todayDate = getLocalIsoDate();
   const currentHour = new Date().getHours();
-  const currentMonthTrips = trips.filter((trip) => trip.month === currentMonth);
-  const currentMonthExpenses = expenses.filter((expense) => getMonthFromDate(expense.date) === currentMonth);
-  const currentMonthStats = calculateDashboardStats(currentMonthTrips, currentMonthExpenses, currentMonth);
-  const dashboardStats = calculateDashboardStats(visibleTrips, visibleExpenses, selectedMonth);
+  const currentActivityEntry =
+    activityEntries.find((entry) => entry.id === globalSettings.activeActivityEntryId) ??
+    activityEntries.find((entry) => entry.status === globalSettings.activityStatus) ??
+    activityEntries[0] ??
+    null;
+  const retainedRecoveryScenario =
+    recoveryScenarios.find((scenario) => scenario.id === globalSettings.retainedRecoveryScenarioId) ??
+    recoveryScenarios.find((scenario) => scenario.status === "retenu") ??
+    null;
+  const activityVehicle =
+    vehicles.find((vehicle) => vehicle.id === currentActivityEntry?.vehicleId) ?? activeVehicle;
+  const isForcedInactivity =
+    globalSettings.activityStatus === "activité suspendue" &&
+    currentActivityEntry?.status === "activité suspendue";
+  const selectedMonthSuspendedDates = isForcedInactivity
+    ? getSuspendedDatesForMonth(currentActivityEntry, selectedMonth, todayDate)
+    : [];
+  const selectedMonthSuspendedDateSet = new Set(selectedMonthSuspendedDates);
+  const currentMonthSuspendedDates = isForcedInactivity
+    ? getSuspendedDatesForMonth(currentActivityEntry, currentMonth, todayDate)
+    : [];
+  const currentMonthSuspendedDateSet = new Set(currentMonthSuspendedDates);
+  const currentMonthTrips = trips.filter(
+    (trip) => trip.month === currentMonth && !currentMonthSuspendedDateSet.has(trip.date),
+  );
+  const currentMonthExpenses = expenses.filter(
+    (expense) =>
+      getMonthFromDate(expense.date) === currentMonth &&
+      !currentMonthSuspendedDateSet.has(expense.date),
+  );
+  const visibleTripsForAnalytics = visibleTrips.filter(
+    (trip) => !selectedMonthSuspendedDateSet.has(trip.date),
+  );
+  const visibleExpensesForAnalytics = visibleExpenses.filter(
+    (expense) => !selectedMonthSuspendedDateSet.has(expense.date),
+  );
+  const currentMonthStats = calculateDashboardStats(
+    currentMonthTrips,
+    currentMonthExpenses,
+    currentMonth,
+  );
+  const dashboardStats = calculateDashboardStats(
+    visibleTripsForAnalytics,
+    visibleExpensesForAnalytics,
+    selectedMonth,
+  );
   const vehiclePerformances = calculateVehiclePerformances(
     vehicles,
     trips,
@@ -992,8 +1142,12 @@ export default function App() {
     PRIMARY_NAV_ITEMS.find((item) => item.id === activePrimaryNav) ?? PRIMARY_NAV_ITEMS[0];
   const sectionTabs = SECTION_TABS[activePrimaryNav];
 
-  const monthTrips = trips.filter((trip) => trip.month === selectedMonth);
-  const workDaySummaries = buildWorkDaySummaries(trips, expenses, selectedMonth);
+  const monthTrips = visibleTripsForAnalytics;
+  const workDaySummaries = buildWorkDaySummaries(
+    visibleTripsForAnalytics,
+    visibleExpensesForAnalytics,
+    selectedMonth,
+  );
   const monthDays = getDaysForMonth(selectedMonth);
   const isCurrentMonth = selectedMonth === getCurrentMonthValue();
   const summaryReferenceDate = isCurrentMonth
@@ -1001,12 +1155,17 @@ export default function App() {
     : selectedCalendarDate.startsWith(selectedMonth)
       ? selectedCalendarDate
       : `${selectedMonth}-01`;
-  const selectedDaySummary = workDaySummaries.find((day) => day.date === selectedCalendarDate) ?? null;
-  const selectedDayTrips = trips.filter((trip) => trip.date === selectedCalendarDate);
-  const selectedDayExpenses = expenses.filter((expense) => expense.date === selectedCalendarDate);
+  const selectedDaySummary =
+    workDaySummaries.find((day) => day.date === selectedCalendarDate) ?? null;
+  const selectedDayTrips = visibleTripsForAnalytics.filter(
+    (trip) => trip.date === selectedCalendarDate,
+  );
+  const selectedDayExpenses = visibleExpensesForAnalytics.filter(
+    (expense) => expense.date === selectedCalendarDate,
+  );
   const selectedDayFuelEntries = fuelEntries.filter((entry) => entry.date === selectedCalendarDate);
   const selectedDayChargeEntries = chargeEntries.filter((entry) => entry.date === selectedCalendarDate);
-  const zoneStats = calculateZoneStats(trips, selectedMonth);
+  const zoneStats = calculateZoneStats(visibleTripsForAnalytics, selectedMonth);
   const travelCalibrations = buildTravelCalibrations(trips);
   const bestWorkDay =
     workDaySummaries
@@ -1087,22 +1246,46 @@ export default function App() {
     dashboardVehicleFilter === "all"
       ? vehicles.filter((vehicle) => vehicle.status !== "Archivé")
       : vehicles.filter((vehicle) => vehicle.id === dashboardVehicleFilter);
-  const workedActiveDays = new Set(visibleTrips.map((trip) => trip.date)).size;
+  const workedActiveDays = new Set(visibleTripsForAnalytics.map((trip) => trip.date)).size;
   const plannedWorkDays = filteredVehicles.reduce(
     (sum, vehicle) => sum + Math.max(vehicle.plannedWorkDaysPerMonth || 0, 0),
     0,
   );
+  const selectedDailyTargetReference =
+    selectedObjective / Math.max(plannedWorkDays || 1, 1);
+  const selectedActivityMetrics = calculateForcedInactivityMetrics({
+    activity: isForcedInactivity ? currentActivityEntry : null,
+    month: selectedMonth,
+    todayDate,
+    monthlyObjective: selectedObjective,
+    remainingGoal,
+    plannedWorkDaysPerMonth: plannedWorkDays,
+    workedActiveDays,
+    dailyTargetReference: selectedDailyTargetReference,
+  });
   const monthRemainingCalendarDays = isCurrentMonth
     ? Math.max(monthDays.length - Number(summaryReferenceDate.slice(-2)) + 1, 1)
     : Math.max(monthDays.length, 1);
-  const remainingPlannedDays =
+  const remainingPlannedDaysBase =
     plannedWorkDays > 0
       ? Math.max(plannedWorkDays - workedActiveDays, remainingGoal > 0 ? 1 : 0)
       : Math.max(monthRemainingCalendarDays, remainingGoal > 0 ? 1 : 0);
+  const remainingPlannedDays =
+    isCurrentMonth && isForcedInactivity
+      ? selectedActivityMetrics.remainingWorkDaysAfterResume
+      : remainingPlannedDaysBase;
   const requiredDailyAverage =
-    remainingGoal > 0 ? remainingGoal / Math.max(remainingPlannedDays, 1) : 0;
-  const summaryDayTrips = visibleTrips.filter((trip) => trip.date === summaryReferenceDate);
-  const summaryDayExpenses = visibleExpenses.filter((expense) => expense.date === summaryReferenceDate);
+    isCurrentMonth && isForcedInactivity
+      ? selectedActivityMetrics.recalculatedDailyTarget
+      : remainingGoal > 0
+        ? remainingGoal / Math.max(remainingPlannedDays, 1)
+        : 0;
+  const summaryDayTrips = visibleTripsForAnalytics.filter(
+    (trip) => trip.date === summaryReferenceDate,
+  );
+  const summaryDayExpenses = visibleExpensesForAnalytics.filter(
+    (expense) => expense.date === summaryReferenceDate,
+  );
   const summaryDayFuelEntries = fuelEntries.filter(
     (entry) =>
       entry.date === summaryReferenceDate &&
@@ -1134,14 +1317,36 @@ export default function App() {
   const currentWorkedActiveDays = new Set(currentMonthTrips.map((trip) => trip.date)).size;
   const currentMonthDays = getDaysForMonth(currentMonth);
   const currentRemainingGoal = Math.max(notificationObjective - currentMonthStats.grossRevenue, 0);
-  const currentRemainingPlannedDays =
-    notificationPlannedWorkDays > 0
-      ? Math.max(notificationPlannedWorkDays - currentWorkedActiveDays, currentRemainingGoal > 0 ? 1 : 0)
-      : Math.max(currentMonthDays.length - Number(todayDate.slice(-2)) + 1, currentRemainingGoal > 0 ? 1 : 0);
-  const currentRequiredDailyAverage =
-    currentRemainingGoal > 0 ? currentRemainingGoal / Math.max(currentRemainingPlannedDays, 1) : 0;
   const currentDailyGoalTarget =
     notificationObjective / Math.max(notificationPlannedWorkDays || 1, 1);
+  const currentActivityMetrics = calculateForcedInactivityMetrics({
+    activity: isForcedInactivity ? currentActivityEntry : null,
+    month: currentMonth,
+    todayDate,
+    monthlyObjective: notificationObjective,
+    remainingGoal: currentRemainingGoal,
+    plannedWorkDaysPerMonth: notificationPlannedWorkDays,
+    workedActiveDays: currentWorkedActiveDays,
+    dailyTargetReference: currentDailyGoalTarget,
+  });
+  const currentRemainingPlannedDaysBase =
+    notificationPlannedWorkDays > 0
+      ? Math.max(
+          notificationPlannedWorkDays - currentWorkedActiveDays,
+          currentRemainingGoal > 0 ? 1 : 0,
+        )
+      : Math.max(
+          currentMonthDays.length - Number(todayDate.slice(-2)) + 1,
+          currentRemainingGoal > 0 ? 1 : 0,
+        );
+  const currentRemainingPlannedDays = isForcedInactivity
+    ? currentActivityMetrics.remainingWorkDaysAfterResume
+    : currentRemainingPlannedDaysBase;
+  const currentRequiredDailyAverage = isForcedInactivity
+    ? currentActivityMetrics.recalculatedDailyTarget
+    : currentRemainingGoal > 0
+      ? currentRemainingGoal / Math.max(currentRemainingPlannedDays, 1)
+      : 0;
   const currentDayTrips = currentMonthTrips.filter((trip) => trip.date === todayDate);
   const currentDayExpenseEntries = currentMonthExpenses.filter((expense) => expense.date === todayDate);
   const currentDayFuelEntries = fuelEntries.filter((entry) => entry.date === todayDate);
@@ -1192,6 +1397,40 @@ export default function App() {
   const notificationVehicleIssues = notificationVehicles.filter(
     (vehicle) => vehicle.status === "En panne" || vehicle.status === "En réparation",
   );
+  const recoveryReferenceVehicle = activityVehicle ?? activeVehicle;
+  const recoveryAverageNetHourly =
+    currentMonthStats.averageNetHourly > 0
+      ? currentMonthStats.averageNetHourly
+      : dashboardStats.averageNetHourly > 0
+        ? dashboardStats.averageNetHourly
+        : 30;
+  const recoveryContext = {
+    averageNetHourly: recoveryAverageNetHourly,
+    plannedWorkDaysPerMonth:
+      recoveryReferenceVehicle?.plannedWorkDaysPerMonth || notificationPlannedWorkDays || 20,
+    plannedWorkHoursPerDay: recoveryReferenceVehicle?.plannedWorkHoursPerDay || 8,
+    monthlyObjective: recoveryReferenceVehicle?.monthlyRevenueTarget || MONTHLY_TARGET,
+    plannedKmPerMonth: recoveryReferenceVehicle?.plannedKmPerMonth || 3500,
+    energyCostPerKm: recoveryReferenceVehicle
+      ? (recoveryReferenceVehicle.estimatedConsumptionPer100Km / 100) *
+        recoveryReferenceVehicle.estimatedEnergyPricePerUnit
+      : 0.11,
+    maintenanceCostPerKm: recoveryReferenceVehicle
+      ? calculateConfiguredMaintenanceCostPerKm(recoveryReferenceVehicle)
+      : 0.12,
+    monthlyInsurance: recoveryReferenceVehicle?.estimatedMonthlyInsurance || 0,
+    monthlyFixedCosts: recoveryReferenceVehicle?.estimatedMonthlyFixedCosts || 0,
+  };
+  const rentalOfferCards = rentalOffers.map((offer) => ({
+    offer,
+    metrics: calculateRentalOfferMetrics(offer, recoveryContext),
+  }));
+  const recoveryScenarioCards = recoveryScenarios.map((scenario) => ({
+    scenario,
+    metrics: calculateRecoveryScenarioMetrics(scenario, recoveryContext),
+  }));
+  const retainedScenarioCard =
+    recoveryScenarioCards.find((item) => item.scenario.id === retainedRecoveryScenario?.id) ?? null;
   const unreadNotificationCount = notifications.filter((notification) => notification.readAt === null).length;
   const filteredNotifications = notifications.filter((notification) =>
     notificationFilter === "all" ? true : notification.category === notificationFilter,
@@ -1460,6 +1699,7 @@ export default function App() {
 
     if (
       notificationSettings.goalDailyMissed &&
+      !isForcedInactivity &&
       currentHour >= 15 &&
       currentDailyGoalTarget > 0 &&
       currentDayRevenue > 0 &&
@@ -1507,6 +1747,7 @@ export default function App() {
 
     if (
       notificationSettings.noRevenueToday &&
+      !isForcedInactivity &&
       currentHour >= 12 &&
       currentDayRevenue <= 0
     ) {
@@ -1609,6 +1850,7 @@ export default function App() {
     currentRequiredDailyAverage,
     highExpenseItems,
     highExpenseThreshold,
+    isForcedInactivity,
     loading,
     notificationMaintenanceAlerts,
     notificationObjective,
@@ -1793,9 +2035,67 @@ export default function App() {
     }));
   }
 
+  function updateActivityDraft<K extends keyof ActivityEntry>(
+    field: K,
+    value: ActivityEntry[K],
+  ) {
+    setActivityDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function updateRentalOfferDraft<K extends keyof RentalOfferEntry>(
+    field: K,
+    value: RentalOfferEntry[K],
+  ) {
+    setRentalOfferDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function updateRecoveryScenarioDraft<K extends keyof RecoveryScenarioEntry>(
+    field: K,
+    value: RecoveryScenarioEntry[K],
+  ) {
+    setRecoveryScenarioDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
   async function persistGlobalSettings(nextSettings: GlobalSettings) {
     await saveGlobalSettings(nextSettings);
     setGlobalSettings(nextSettings);
+  }
+
+  function startNewActivity(status: ActivityStatus = globalSettings.activityStatus) {
+    setActivityDraft(
+      createActivityEntry({
+        status,
+        vehicleId: activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID,
+        startDate: getLocalIsoDate(),
+        estimatedResumeDate: getLocalIsoDate(),
+      }),
+    );
+  }
+
+  function startNewRentalOffer() {
+    setRentalOfferDraft(
+      createRentalOfferEntry({
+        availableFrom: getLocalIsoDate(),
+      }),
+    );
+  }
+
+  function startNewRecoveryScenario() {
+    setRecoveryScenarioDraft(
+      createRecoveryScenarioEntry({
+        linkedVehicleId: activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID,
+        possibleResumeDate: getLocalIsoDate(),
+      }),
+    );
   }
 
   function startNewRepair(vehicleId = activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID) {
@@ -1857,6 +2157,14 @@ export default function App() {
     );
     setRepairPartDraft(createRepairPartEntry({ repairId: nextActiveRepair?.id ?? "" }));
     setReminderDraft((current) => ({ ...current, vehicleProfileId: vehicleId }));
+    setActivityDraft((current) => ({
+      ...current,
+      vehicleId,
+    }));
+    setRecoveryScenarioDraft((current) => ({
+      ...current,
+      linkedVehicleId: vehicleId,
+    }));
   }
 
   async function handleSetActivePlatform(platformId: string) {
@@ -2594,6 +2902,214 @@ export default function App() {
     }
   }
 
+  function editActivity(entry: ActivityEntry) {
+    setActivityDraft(entry);
+  }
+
+  async function handleSaveActivity() {
+    setSaving(true);
+
+    try {
+      const normalizedActivity = cloneWithMeta(activityDraft);
+      await saveActivityEntry(normalizedActivity);
+      await persistGlobalSettings({
+        ...globalSettings,
+        activityStatus: normalizedActivity.status,
+        activeActivityEntryId: normalizedActivity.id,
+      });
+      await loadAllData();
+      setNotice({ tone: "success", message: "État d’activité enregistré." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible d’enregistrer l’état d’activité.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteActivity(entry: ActivityEntry) {
+    if (!window.confirm("Supprimer cet état d’activité ?")) {
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await deleteActivityEntry(entry.id);
+      if (globalSettings.activeActivityEntryId === entry.id) {
+        await persistGlobalSettings({
+          ...globalSettings,
+          activityStatus: "activité normale",
+          activeActivityEntryId: null,
+        });
+      }
+      await loadAllData();
+      startNewActivity("activité normale");
+      setNotice({ tone: "success", message: "État d’activité supprimé." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible de supprimer l’état d’activité.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editRentalOffer(offer: RentalOfferEntry) {
+    setRentalOfferDraft(offer);
+  }
+
+  async function handleSaveRentalOffer() {
+    setSaving(true);
+
+    try {
+      await saveRentalOffer(cloneWithMeta(rentalOfferDraft));
+      await loadAllData();
+      setNotice({ tone: "success", message: "Offre de location enregistrée." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible d’enregistrer l’offre de location.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteRentalOffer(offerId: string) {
+    if (!window.confirm("Supprimer cette offre de location ?")) {
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await deleteRentalOffer(offerId);
+      await loadAllData();
+      startNewRentalOffer();
+      setNotice({ tone: "success", message: "Offre de location supprimée." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible de supprimer l’offre de location.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editRecoveryScenario(scenario: RecoveryScenarioEntry) {
+    setRecoveryScenarioDraft(scenario);
+  }
+
+  async function handleSaveRecoveryScenario() {
+    setSaving(true);
+
+    try {
+      const normalizedScenario = cloneWithMeta(recoveryScenarioDraft);
+      await saveRecoveryScenario(normalizedScenario);
+      if (normalizedScenario.status === "retenu") {
+        await persistGlobalSettings({
+          ...globalSettings,
+          retainedRecoveryScenarioId: normalizedScenario.id,
+        });
+      }
+      await loadAllData();
+      setNotice({ tone: "success", message: "Scénario de reprise enregistré." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible d’enregistrer le scénario de reprise.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteRecoveryScenario(scenarioId: string) {
+    if (!window.confirm("Supprimer ce scénario de reprise ?")) {
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await deleteRecoveryScenario(scenarioId);
+      if (globalSettings.retainedRecoveryScenarioId === scenarioId) {
+        await persistGlobalSettings({
+          ...globalSettings,
+          retainedRecoveryScenarioId: null,
+        });
+      }
+      await loadAllData();
+      startNewRecoveryScenario();
+      setNotice({ tone: "success", message: "Scénario de reprise supprimé." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible de supprimer le scénario de reprise.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRetainRecoveryScenario(scenarioId: string) {
+    setSaving(true);
+
+    try {
+      const updates = recoveryScenarios.map((scenario) =>
+        scenario.id === scenarioId
+          ? cloneWithMeta({ ...scenario, status: "retenu" as RecoveryScenarioEntry["status"] })
+          : scenario.status === "retenu"
+            ? cloneWithMeta({ ...scenario, status: "envisagé" as RecoveryScenarioEntry["status"] })
+            : scenario,
+      );
+
+      for (const scenario of updates) {
+        await saveRecoveryScenario(scenario);
+      }
+
+      await persistGlobalSettings({
+        ...globalSettings,
+        retainedRecoveryScenarioId: scenarioId,
+      });
+      await loadAllData();
+      setNotice({ tone: "success", message: "Plan de reprise retenu." });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible de retenir ce scénario.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleCompleteReminder(reminder: ReminderEntry) {
     await saveReminderEntry(
       cloneWithMeta({
@@ -3262,6 +3778,163 @@ export default function App() {
                 </div>
               </div>
 
+              <article className="group-card activity-state-card">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">État d’activité</p>
+                    <h3>{globalSettings.activityStatus}</h3>
+                    <p className="section-copy">
+                      {currentActivityEntry?.reason ||
+                        (globalSettings.activityStatus === "activité suspendue"
+                          ? "Reprise à organiser pour retravailler rapidement."
+                          : "Aucun arrêt forcé en cours.")}
+                    </p>
+                  </div>
+                  <span
+                    className={`status-chip ${
+                      globalSettings.activityStatus === "activité suspendue"
+                        ? "a-faire-maintenant"
+                        : globalSettings.activityStatus === "reprise progressive"
+                          ? "en-cours"
+                          : globalSettings.activityStatus === "repos volontaire"
+                            ? "warning"
+                            : "active"
+                    }`}
+                  >
+                    {globalSettings.activityStatus}
+                  </span>
+                </div>
+
+                <div className="metric-grid">
+                  <MetricCard
+                    label="Véhicule concerné"
+                    value={activityVehicle?.profileName ?? "Aucun"}
+                  />
+                  <MetricCard
+                    label="Date de début"
+                    value={currentActivityEntry?.startDate || "Non renseignée"}
+                  />
+                  <MetricCard
+                    label="Reprise estimée"
+                    value={
+                      isForcedInactivity
+                        ? currentActivityMetrics.estimatedResumeDate || "À définir"
+                        : currentActivityEntry?.estimatedResumeDate || "Normale"
+                    }
+                  />
+                </div>
+
+                {isForcedInactivity ? (
+                  <>
+                    <div className="metric-grid">
+                      <MetricCard
+                        label="Jours d’arrêt"
+                        value={formatInteger(currentActivityMetrics.stopDaysCount)}
+                      />
+                      <MetricCard
+                        label="Impact sur l’objectif"
+                        value={formatCurrency(currentActivityMetrics.impactOnMonthlyGoal)}
+                      />
+                      <MetricCard
+                        label="Jours restants après reprise"
+                        value={formatInteger(currentActivityMetrics.remainingWorkDaysAfterResume)}
+                      />
+                      <MetricCard
+                        label="Objectif journalier recalculé"
+                        value={formatCurrency(currentActivityMetrics.recalculatedDailyTarget)}
+                      />
+                      <MetricCard
+                        label="Budget de reprise"
+                        value={formatCurrency(currentActivityMetrics.requiredBudget)}
+                      />
+                      <MetricCard
+                        label="Reste à financer"
+                        value={formatCurrency(currentActivityMetrics.remainingFunding)}
+                      />
+                    </div>
+
+                    <div className="progress-card">
+                      <div>
+                        <span className="progress-card__label">Progression du financement</span>
+                        <strong>
+                          {formatCurrency(currentActivityMetrics.availableBudget)} /{" "}
+                          {formatCurrency(currentActivityMetrics.requiredBudget)}
+                        </strong>
+                      </div>
+                      <div className="progress-track" aria-hidden="true">
+                        <div
+                          className="progress-fill"
+                          style={{
+                            width: `${Math.min(currentActivityMetrics.fundingProgress, 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="progress-copy">
+                        {formatNumber(currentActivityMetrics.fundingProgress, "% financé")}
+                      </p>
+                    </div>
+
+                    <div className="group-grid">
+                      <section className="list-card">
+                        <strong>Checklist de reprise</strong>
+                        {currentActivityMetrics.checklistItems.length > 0 ? (
+                          <div className="tips-list">
+                            {currentActivityMetrics.checklistItems.map((item) => (
+                              <p key={item}>{item}</p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="empty-copy">Aucune démarche enregistrée pour le moment.</p>
+                        )}
+                      </section>
+
+                      <section className="list-card">
+                        <strong>Tâches de reprise</strong>
+                        {currentActivityMetrics.taskItems.length > 0 ? (
+                          <div className="tips-list">
+                            {currentActivityMetrics.taskItems.map((item) => (
+                              <p key={item}>{item}</p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="empty-copy">Aucune tâche de reprise enregistrée.</p>
+                        )}
+                      </section>
+                    </div>
+                  </>
+                ) : null}
+
+                {retainedScenarioCard ? (
+                  <section className="list-card">
+                    <div className="list-card__header">
+                      <div>
+                        <strong>Plan de reprise retenu</strong>
+                        <p>{retainedScenarioCard.scenario.type}</p>
+                      </div>
+                      <span className="status-chip active">
+                        {retainedScenarioCard.scenario.status}
+                      </span>
+                    </div>
+                    <div className="list-card__metrics">
+                      <span>Coût initial : {formatCurrency(retainedScenarioCard.scenario.initialCost)}</span>
+                      <span>Coût mensuel : {formatCurrency(retainedScenarioCard.scenario.monthlyCost)}</span>
+                      <span>Reprise : {retainedScenarioCard.scenario.possibleResumeDate || "À définir"}</span>
+                      <span>CA nécessaire : {formatCurrency(retainedScenarioCard.metrics.revenueRequired)}</span>
+                      <span>Amorti en : {formatNumber(retainedScenarioCard.metrics.paybackDays, " jours")}</span>
+                    </div>
+                    {retainedScenarioCard.scenario.comment ? (
+                      <p className="section-copy">{retainedScenarioCard.scenario.comment}</p>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                <div className="action-row">
+                  <button className="ghost-button" type="button" onClick={() => setActiveTab("recovery")}>
+                    Gérer la reprise
+                  </button>
+                </div>
+              </article>
+
               <div className="quick-actions">
                 <button className="ghost-button" type="button" onClick={() => setActiveTab("trip")}>
                   + Course
@@ -3296,6 +3969,9 @@ export default function App() {
                 </button>
                 <button className="ghost-button" type="button" onClick={() => setActiveTab("vehicles")}>
                   Mon profil
+                </button>
+                <button className="ghost-button" type="button" onClick={() => setActiveTab("recovery")}>
+                  Plan de reprise
                 </button>
               </div>
             </article>
@@ -6578,6 +7254,727 @@ export default function App() {
                     </article>
                   );
                 })}
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {!loading && activeTab === "recovery" ? (
+          <section className="panel-stack">
+            <article className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Activité & reprise</p>
+                  <h2>Mode repos forcé / activité suspendue</h2>
+                  <p className="section-copy">
+                    Distinguez clairement un arrêt forcé, un repos volontaire et une reprise progressive.
+                  </p>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => startNewActivity(globalSettings.activityStatus)}>
+                  Nouveau plan
+                </button>
+              </div>
+
+              <div className="form-grid">
+                <label className="field">
+                  <span>État d’activité</span>
+                  <select
+                    value={activityDraft.status}
+                    onChange={(event) =>
+                      updateActivityDraft("status", event.target.value as ActivityEntry["status"])
+                    }
+                  >
+                    {ACTIVITY_STATUS_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Date de début</span>
+                  <input
+                    type="date"
+                    value={activityDraft.startDate}
+                    onChange={(event) => updateActivityDraft("startDate", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Date estimée de reprise</span>
+                  <input
+                    type="date"
+                    value={activityDraft.estimatedResumeDate}
+                    onChange={(event) =>
+                      updateActivityDraft("estimatedResumeDate", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Date de fin / retour</span>
+                  <input
+                    type="date"
+                    value={activityDraft.endDate}
+                    onChange={(event) => updateActivityDraft("endDate", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Véhicule concerné</span>
+                  <select
+                    value={activityDraft.vehicleId}
+                    onChange={(event) => updateActivityDraft("vehicleId", event.target.value)}
+                  >
+                    {vehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.profileName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Motif</span>
+                  <input
+                    type="text"
+                    value={activityDraft.reason}
+                    onChange={(event) => updateActivityDraft("reason", event.target.value)}
+                    placeholder="Ex. panne moteur, indisponibilité garage"
+                  />
+                </label>
+                <label className="field">
+                  <span>Budget nécessaire pour reprendre</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={activityDraft.requiredBudget}
+                    onChange={(event) =>
+                      updateActivityDraft("requiredBudget", Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Montant déjà disponible</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={activityDraft.availableBudget}
+                    onChange={(event) =>
+                      updateActivityDraft("availableBudget", Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field field--full">
+                  <span>Commentaire</span>
+                  <textarea
+                    rows={2}
+                    value={activityDraft.comment}
+                    onChange={(event) => updateActivityDraft("comment", event.target.value)}
+                  />
+                </label>
+                <label className="field field--full">
+                  <span>Démarches à accomplir</span>
+                  <textarea
+                    rows={3}
+                    value={activityDraft.stepsToComplete}
+                    onChange={(event) =>
+                      updateActivityDraft("stepsToComplete", event.target.value)
+                    }
+                    placeholder="Une ligne par démarche"
+                  />
+                </label>
+                <label className="field field--full">
+                  <span>Tâches de reprise</span>
+                  <textarea
+                    rows={3}
+                    value={activityDraft.restartTasks}
+                    onChange={(event) => updateActivityDraft("restartTasks", event.target.value)}
+                    placeholder="Une ligne par tâche"
+                  />
+                </label>
+              </div>
+
+              {activityDraft.status === "activité suspendue" ? (
+                <div className="metric-grid">
+                  <MetricCard label="Reste à financer" value={formatCurrency(Math.max(activityDraft.requiredBudget - activityDraft.availableBudget, 0))} />
+                  <MetricCard label="Jours d’arrêt" value={formatInteger(currentActivityMetrics.stopDaysCount)} />
+                  <MetricCard label="Impact objectif" value={formatCurrency(currentActivityMetrics.impactOnMonthlyGoal)} />
+                </div>
+              ) : null}
+
+              <div className="action-row">
+                <button className="primary-button neutral" type="button" onClick={handleSaveActivity} disabled={saving}>
+                  {saving ? "Enregistrement..." : "Enregistrer l’état"}
+                </button>
+                <button className="ghost-button" type="button" onClick={() => startNewActivity(activityDraft.status)}>
+                  Réinitialiser
+                </button>
+              </div>
+
+              <div className="stack-list">
+                {activityEntries.map((entry) => (
+                  <article key={entry.id} className="list-card">
+                    <div className="list-card__header">
+                      <div>
+                        <strong>{entry.status}</strong>
+                        <p>
+                          {entry.startDate || "Sans date"}
+                          {entry.estimatedResumeDate ? ` • reprise ${entry.estimatedResumeDate}` : ""}
+                          {entry.reason ? ` • ${entry.reason}` : ""}
+                        </p>
+                      </div>
+                      <div className="chip-row">
+                        <span className={`status-chip ${entry.status === "activité suspendue" ? "a-faire-maintenant" : entry.status === "reprise progressive" ? "en-cours" : entry.status === "repos volontaire" ? "warning" : "active"}`}>
+                          {entry.status}
+                        </span>
+                        {entry.id === globalSettings.activeActivityEntryId ? (
+                          <span className="status-chip active">Actif</span>
+                        ) : null}
+                      </div>
+                    </div>
+                    {entry.comment ? <p className="section-copy">{entry.comment}</p> : null}
+                    <div className="list-card__metrics">
+                      <span>Budget : {formatCurrency(entry.requiredBudget)}</span>
+                      <span>Disponible : {formatCurrency(entry.availableBudget)}</span>
+                      <span>Reste : {formatCurrency(Math.max(entry.requiredBudget - entry.availableBudget, 0))}</span>
+                    </div>
+                    <div className="action-row">
+                      <button className="ghost-button" type="button" onClick={() => editActivity(entry)}>
+                        Modifier
+                      </button>
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() =>
+                          persistGlobalSettings({
+                            ...globalSettings,
+                            activityStatus: entry.status,
+                            activeActivityEntryId: entry.id,
+                          })
+                        }
+                      >
+                        Rendre actif
+                      </button>
+                      <button className="ghost-button danger-text" type="button" onClick={() => handleDeleteActivity(entry)}>
+                        Supprimer
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Louer un véhicule</p>
+                  <h2>Comparer plusieurs offres</h2>
+                  <p className="section-copy">
+                    Évaluez rapidement si la location vous permet de reprendre sans détruire votre objectif mensuel.
+                  </p>
+                </div>
+                <button className="ghost-button" type="button" onClick={startNewRentalOffer}>
+                  Nouvelle offre
+                </button>
+              </div>
+
+              <div className="form-grid">
+                <label className="field">
+                  <span>Loueur</span>
+                  <input
+                    type="text"
+                    value={rentalOfferDraft.providerName}
+                    onChange={(event) => updateRentalOfferDraft("providerName", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Type de véhicule</span>
+                  <input
+                    type="text"
+                    value={rentalOfferDraft.vehicleCategory}
+                    onChange={(event) => updateRentalOfferDraft("vehicleCategory", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Motorisation</span>
+                  <select
+                    value={rentalOfferDraft.powertrain}
+                    onChange={(event) =>
+                      updateRentalOfferDraft("powertrain", event.target.value as RentalOfferEntry["powertrain"])
+                    }
+                  >
+                    {RENTAL_POWERTRAIN_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Marque</span>
+                  <input
+                    type="text"
+                    value={rentalOfferDraft.brand}
+                    onChange={(event) => updateRentalOfferDraft("brand", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Modèle</span>
+                  <input
+                    type="text"
+                    value={rentalOfferDraft.model}
+                    onChange={(event) => updateRentalOfferDraft("model", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Disponible à partir du</span>
+                  <input
+                    type="date"
+                    value={rentalOfferDraft.availableFrom}
+                    onChange={(event) => updateRentalOfferDraft("availableFrom", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Prix / jour</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={rentalOfferDraft.dailyPrice}
+                    onChange={(event) => updateRentalOfferDraft("dailyPrice", Number(event.target.value) || 0)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Prix / semaine</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={rentalOfferDraft.weeklyPrice}
+                    onChange={(event) => updateRentalOfferDraft("weeklyPrice", Number(event.target.value) || 0)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Prix / mois</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={rentalOfferDraft.monthlyPrice}
+                    onChange={(event) => updateRentalOfferDraft("monthlyPrice", Number(event.target.value) || 0)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Dépôt de garantie</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={rentalOfferDraft.securityDeposit}
+                    onChange={(event) => updateRentalOfferDraft("securityDeposit", Number(event.target.value) || 0)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Kilométrage inclus</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rentalOfferDraft.includedKm}
+                    onChange={(event) => updateRentalOfferDraft("includedKm", Number(event.target.value) || 0)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Coût km supplémentaire</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={rentalOfferDraft.extraKmPrice}
+                    onChange={(event) => updateRentalOfferDraft("extraKmPrice", Number(event.target.value) || 0)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Âge minimum</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rentalOfferDraft.minimumAge}
+                    onChange={(event) => updateRentalOfferDraft("minimumAge", Number(event.target.value) || 0)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Ancienneté permis</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rentalOfferDraft.minimumLicenseYears}
+                    onChange={(event) =>
+                      updateRentalOfferDraft("minimumLicenseYears", Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Engagement minimum (jours)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={rentalOfferDraft.minimumCommitmentDays}
+                    onChange={(event) =>
+                      updateRentalOfferDraft("minimumCommitmentDays", Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Lien / coordonnées</span>
+                  <input
+                    type="text"
+                    value={rentalOfferDraft.contactDetails}
+                    onChange={(event) =>
+                      updateRentalOfferDraft("contactDetails", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="field inline-check">
+                  <span>Assurance incluse</span>
+                  <input
+                    type="checkbox"
+                    checked={rentalOfferDraft.insuranceIncluded}
+                    onChange={(event) =>
+                      updateRentalOfferDraft("insuranceIncluded", event.target.checked)
+                    }
+                  />
+                </label>
+                <label className="field inline-check">
+                  <span>Entretien inclus</span>
+                  <input
+                    type="checkbox"
+                    checked={rentalOfferDraft.maintenanceIncluded}
+                    onChange={(event) =>
+                      updateRentalOfferDraft("maintenanceIncluded", event.target.checked)
+                    }
+                  />
+                </label>
+                <label className="field inline-check">
+                  <span>Assistance incluse</span>
+                  <input
+                    type="checkbox"
+                    checked={rentalOfferDraft.roadsideAssistanceIncluded}
+                    onChange={(event) =>
+                      updateRentalOfferDraft("roadsideAssistanceIncluded", event.target.checked)
+                    }
+                  />
+                </label>
+                <label className="field field--full">
+                  <span>Notes personnelles</span>
+                  <textarea
+                    rows={2}
+                    value={rentalOfferDraft.notes}
+                    onChange={(event) => updateRentalOfferDraft("notes", event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="action-row">
+                <button className="primary-button neutral" type="button" onClick={handleSaveRentalOffer} disabled={saving}>
+                  {saving ? "Enregistrement..." : "Enregistrer l’offre"}
+                </button>
+                <button className="ghost-button" type="button" onClick={startNewRentalOffer}>
+                  Réinitialiser
+                </button>
+              </div>
+
+              <div className="stack-list">
+                {rentalOfferCards.length === 0 ? (
+                  <p className="empty-copy">Ajoutez au moins une offre pour lancer la comparaison.</p>
+                ) : (
+                  rentalOfferCards.map(({ offer, metrics }) => (
+                    <article key={offer.id} className="list-card">
+                      <div className="list-card__header">
+                        <div>
+                          <strong>{offer.providerName || "Loueur"} • {offer.brand} {offer.model}</strong>
+                          <p>{offer.vehicleCategory} • {offer.powertrain}</p>
+                        </div>
+                        <div className="chip-row">
+                          {retainedScenarioCard?.scenario.linkedRentalOfferId === offer.id ? (
+                            <span className="status-chip active">Liée au plan retenu</span>
+                          ) : null}
+                          <span className="status-chip warning">{formatCurrency(metrics.monthlyCost)}/mois</span>
+                        </div>
+                      </div>
+                      <div className="list-card__metrics">
+                        <span>Départ : {formatCurrency(metrics.startUpCost)}</span>
+                        <span>Semaine : {formatCurrency(metrics.weeklyCost)}</span>
+                        <span>Jour réel : {formatCurrency(metrics.dailyRealCost)}</span>
+                        <span>CA mini : {formatCurrency(metrics.minimumRevenueNeeded)}</span>
+                        <span>Heures : {formatNumber(metrics.requiredHours, " h")}</span>
+                        <span>Seuil : {formatCurrency(metrics.profitabilityThreshold)}/jour</span>
+                        <span>Bénéfice estimé : {formatCurrency(metrics.estimatedBenefit)}</span>
+                        <span>Impact objectif : {formatCurrency(metrics.impactOnObjective)}</span>
+                      </div>
+                      {offer.notes ? <p className="section-copy">{offer.notes}</p> : null}
+                      <div className="action-row">
+                        <button className="ghost-button" type="button" onClick={() => editRentalOffer(offer)}>
+                          Modifier
+                        </button>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() =>
+                            setRecoveryScenarioDraft(
+                              createRecoveryScenarioEntry({
+                                type: "Louer un véhicule",
+                                title: `${offer.providerName} ${offer.brand} ${offer.model}`.trim(),
+                                linkedVehicleId: activityVehicle?.id ?? activeVehicle?.id ?? LEGACY_DEFAULT_VEHICLE_ID,
+                                linkedRentalOfferId: offer.id,
+                                initialCost: metrics.startUpCost,
+                                monthlyCost: metrics.monthlyCost,
+                                possibleResumeDate: offer.availableFrom || getLocalIsoDate(),
+                                requiredRevenue: metrics.minimumRevenueNeeded,
+                              }),
+                            )
+                          }
+                        >
+                          Créer scénario
+                        </button>
+                        <button className="ghost-button danger-text" type="button" onClick={() => handleDeleteRentalOffer(offer.id)}>
+                          Supprimer
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </article>
+
+            <article className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Comparateur</p>
+                  <h2>Scénarios de reprise</h2>
+                  <p className="section-copy">
+                    Comparez réparer, louer, acheter, attendre ou reprendre progressivement puis retenez le meilleur plan.
+                  </p>
+                </div>
+                <button className="ghost-button" type="button" onClick={startNewRecoveryScenario}>
+                  Nouveau scénario
+                </button>
+              </div>
+
+              <div className="form-grid">
+                <label className="field">
+                  <span>Type de scénario</span>
+                  <select
+                    value={recoveryScenarioDraft.type}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft(
+                        "type",
+                        event.target.value as RecoveryScenarioEntry["type"],
+                      )
+                    }
+                  >
+                    {RECOVERY_SCENARIO_TYPE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Titre</span>
+                  <input
+                    type="text"
+                    value={recoveryScenarioDraft.title}
+                    onChange={(event) => updateRecoveryScenarioDraft("title", event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Véhicule concerné</span>
+                  <select
+                    value={recoveryScenarioDraft.linkedVehicleId}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("linkedVehicleId", event.target.value)
+                    }
+                  >
+                    {vehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.profileName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Offre de location liée</span>
+                  <select
+                    value={recoveryScenarioDraft.linkedRentalOfferId}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("linkedRentalOfferId", event.target.value)
+                    }
+                  >
+                    <option value="">Aucune</option>
+                    {rentalOffers.map((offer) => (
+                      <option key={offer.id} value={offer.id}>
+                        {[offer.providerName, offer.brand, offer.model].filter(Boolean).join(" ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Coût initial</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={recoveryScenarioDraft.initialCost}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("initialCost", Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Coût mensuel</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={recoveryScenarioDraft.monthlyCost}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("monthlyCost", Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Date de reprise possible</span>
+                  <input
+                    type="date"
+                    value={recoveryScenarioDraft.possibleResumeDate}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("possibleResumeDate", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Chiffre d’affaires nécessaire</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={recoveryScenarioDraft.requiredRevenue}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("requiredRevenue", Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Statut</span>
+                  <select
+                    value={recoveryScenarioDraft.status}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft(
+                        "status",
+                        event.target.value as RecoveryScenarioEntry["status"],
+                      )
+                    }
+                  >
+                    {RECOVERY_SCENARIO_STATUS_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field field--full">
+                  <span>Avantages</span>
+                  <textarea
+                    rows={2}
+                    value={recoveryScenarioDraft.advantages}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("advantages", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="field field--full">
+                  <span>Contraintes</span>
+                  <textarea
+                    rows={2}
+                    value={recoveryScenarioDraft.constraints}
+                    onChange={(event) =>
+                      updateRecoveryScenarioDraft("constraints", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="field field--full">
+                  <span>Risques</span>
+                  <textarea
+                    rows={2}
+                    value={recoveryScenarioDraft.risks}
+                    onChange={(event) => updateRecoveryScenarioDraft("risks", event.target.value)}
+                  />
+                </label>
+                <label className="field field--full">
+                  <span>Commentaire</span>
+                  <textarea
+                    rows={2}
+                    value={recoveryScenarioDraft.comment}
+                    onChange={(event) => updateRecoveryScenarioDraft("comment", event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="action-row">
+                <button className="primary-button neutral" type="button" onClick={handleSaveRecoveryScenario} disabled={saving}>
+                  {saving ? "Enregistrement..." : "Enregistrer le scénario"}
+                </button>
+                <button className="ghost-button" type="button" onClick={startNewRecoveryScenario}>
+                  Réinitialiser
+                </button>
+              </div>
+
+              <div className="stack-list">
+                {recoveryScenarioCards.length === 0 ? (
+                  <p className="empty-copy">Ajoutez un premier scénario pour comparer les options.</p>
+                ) : (
+                  recoveryScenarioCards.map(({ scenario, metrics }) => (
+                    <article key={scenario.id} className="list-card">
+                      <div className="list-card__header">
+                        <div>
+                          <strong>{scenario.title || scenario.type}</strong>
+                          <p>{scenario.type}</p>
+                        </div>
+                        <div className="chip-row">
+                          <span className={`status-chip ${scenario.status === "retenu" ? "active" : scenario.status === "en cours" ? "en-cours" : scenario.status === "abandonné" ? "archive" : "warning"}`}>
+                            {scenario.status}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="list-card__metrics">
+                        <span>Coût initial : {formatCurrency(scenario.initialCost)}</span>
+                        <span>Coût mensuel : {formatCurrency(scenario.monthlyCost)}</span>
+                        <span>Reprise : {scenario.possibleResumeDate || "À définir"}</span>
+                        <span>CA nécessaire : {formatCurrency(metrics.revenueRequired)}</span>
+                        <span>Amorti : {formatNumber(metrics.paybackDays, " jours")}</span>
+                        <span>Impact objectif : {formatCurrency(metrics.impactOnObjective)}</span>
+                      </div>
+                      {scenario.advantages ? <p className="section-copy">Avantages : {scenario.advantages}</p> : null}
+                      {scenario.constraints ? <p className="section-copy">Contraintes : {scenario.constraints}</p> : null}
+                      {scenario.risks ? <p className="section-copy">Risques : {scenario.risks}</p> : null}
+                      {scenario.comment ? <p className="section-copy">{scenario.comment}</p> : null}
+                      <div className="action-row">
+                        <button className="ghost-button" type="button" onClick={() => editRecoveryScenario(scenario)}>
+                          Modifier
+                        </button>
+                        <button className="primary-button neutral retain-button" type="button" onClick={() => handleRetainRecoveryScenario(scenario.id)} disabled={saving}>
+                          Retenir ce scénario
+                        </button>
+                        <button className="ghost-button danger-text" type="button" onClick={() => handleDeleteRecoveryScenario(scenario.id)}>
+                          Supprimer
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                )}
               </div>
             </article>
           </section>

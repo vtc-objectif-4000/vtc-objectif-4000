@@ -1,4 +1,6 @@
 import {
+  ActivityEntry,
+  ActivityStatus,
   AppSnapshot,
   ChargeEntry,
   ConfidenceLevel,
@@ -24,10 +26,15 @@ import {
   RepairEntry,
   RepairPartEntry,
   QuoteEntry,
+  RecoveryScenarioEntry,
+  RecoveryScenarioStatus,
+  RecoveryScenarioType,
   RepairPartStatus,
   RepairPriority,
   RepairStatus,
   ReminderEntry,
+  RentalOfferEntry,
+  RentalPowertrain,
   TARGET_NET_HOURLY,
   TimeSlot,
   TripInput,
@@ -411,6 +418,82 @@ export function createReminderEntry(partial?: Partial<ReminderEntry>): ReminderE
     status: partial?.status ?? "OK",
     completedAt: partial?.completedAt ?? "",
     postponedUntil: partial?.postponedUntil ?? "",
+  };
+}
+
+export function createActivityEntry(partial?: Partial<ActivityEntry>): ActivityEntry {
+  const now = createTimestamp();
+
+  return {
+    id: partial?.id ?? buildId("activity"),
+    createdAt: partial?.createdAt ?? now,
+    updatedAt: partial?.updatedAt ?? now,
+    status: partial?.status ?? "activité normale",
+    startDate: partial?.startDate ?? now.slice(0, 10),
+    endDate: partial?.endDate ?? "",
+    reason: partial?.reason ?? "",
+    vehicleId: partial?.vehicleId ?? LEGACY_DEFAULT_VEHICLE_ID,
+    comment: partial?.comment ?? "",
+    estimatedResumeDate: partial?.estimatedResumeDate ?? "",
+    requiredBudget: partial?.requiredBudget ?? 0,
+    availableBudget: partial?.availableBudget ?? 0,
+    stepsToComplete: partial?.stepsToComplete ?? "",
+    restartTasks: partial?.restartTasks ?? "",
+  };
+}
+
+export function createRentalOfferEntry(partial?: Partial<RentalOfferEntry>): RentalOfferEntry {
+  const now = createTimestamp();
+
+  return {
+    id: partial?.id ?? buildId("rental-offer"),
+    createdAt: partial?.createdAt ?? now,
+    updatedAt: partial?.updatedAt ?? now,
+    providerName: partial?.providerName ?? "",
+    vehicleCategory: partial?.vehicleCategory ?? "Berline",
+    powertrain: partial?.powertrain ?? "Hybride",
+    brand: partial?.brand ?? "",
+    model: partial?.model ?? "",
+    dailyPrice: partial?.dailyPrice ?? 0,
+    weeklyPrice: partial?.weeklyPrice ?? 0,
+    monthlyPrice: partial?.monthlyPrice ?? 0,
+    securityDeposit: partial?.securityDeposit ?? 0,
+    includedKm: partial?.includedKm ?? 0,
+    extraKmPrice: partial?.extraKmPrice ?? 0,
+    insuranceIncluded: partial?.insuranceIncluded ?? true,
+    maintenanceIncluded: partial?.maintenanceIncluded ?? true,
+    roadsideAssistanceIncluded: partial?.roadsideAssistanceIncluded ?? true,
+    minimumAge: partial?.minimumAge ?? 0,
+    minimumLicenseYears: partial?.minimumLicenseYears ?? 0,
+    minimumCommitmentDays: partial?.minimumCommitmentDays ?? 1,
+    availableFrom: partial?.availableFrom ?? "",
+    contactDetails: partial?.contactDetails ?? "",
+    notes: partial?.notes ?? "",
+  };
+}
+
+export function createRecoveryScenarioEntry(
+  partial?: Partial<RecoveryScenarioEntry>,
+): RecoveryScenarioEntry {
+  const now = createTimestamp();
+
+  return {
+    id: partial?.id ?? buildId("recovery-scenario"),
+    createdAt: partial?.createdAt ?? now,
+    updatedAt: partial?.updatedAt ?? now,
+    type: partial?.type ?? "Réparer le véhicule actuel",
+    title: partial?.title ?? "",
+    linkedVehicleId: partial?.linkedVehicleId ?? LEGACY_DEFAULT_VEHICLE_ID,
+    linkedRentalOfferId: partial?.linkedRentalOfferId ?? "",
+    initialCost: partial?.initialCost ?? 0,
+    monthlyCost: partial?.monthlyCost ?? 0,
+    possibleResumeDate: partial?.possibleResumeDate ?? "",
+    requiredRevenue: partial?.requiredRevenue ?? 0,
+    advantages: partial?.advantages ?? "",
+    constraints: partial?.constraints ?? "",
+    risks: partial?.risks ?? "",
+    status: partial?.status ?? "envisagé",
+    comment: partial?.comment ?? "",
   };
 }
 
@@ -1585,6 +1668,89 @@ export function normalizeReminderEntry(rawValue: unknown): ReminderEntry {
   });
 }
 
+export function normalizeActivityEntry(rawValue: unknown): ActivityEntry {
+  const source = isRecord(rawValue) ? rawValue : {};
+
+  return createActivityEntry({
+    id: asString(source.id, buildId("activity")),
+    createdAt: asString(source.createdAt, createTimestamp()),
+    updatedAt: asString(source.updatedAt, createTimestamp()),
+    status: asString(
+      source.status,
+      "activité normale",
+    ) as ActivityStatus,
+    startDate: asString(source.startDate, createTimestamp().slice(0, 10)),
+    endDate: asString(source.endDate, ""),
+    reason: asString(source.reason, ""),
+    vehicleId: asString(source.vehicleId, LEGACY_DEFAULT_VEHICLE_ID),
+    comment: asString(source.comment, ""),
+    estimatedResumeDate: asString(source.estimatedResumeDate, ""),
+    requiredBudget: asFiniteNumber(source.requiredBudget, 0),
+    availableBudget: asFiniteNumber(source.availableBudget, 0),
+    stepsToComplete: asString(source.stepsToComplete, ""),
+    restartTasks: asString(source.restartTasks, ""),
+  });
+}
+
+export function normalizeRentalOfferEntry(rawValue: unknown): RentalOfferEntry {
+  const source = isRecord(rawValue) ? rawValue : {};
+
+  return createRentalOfferEntry({
+    id: asString(source.id, buildId("rental-offer")),
+    createdAt: asString(source.createdAt, createTimestamp()),
+    updatedAt: asString(source.updatedAt, createTimestamp()),
+    providerName: asString(source.providerName, ""),
+    vehicleCategory: asString(source.vehicleCategory, "Berline"),
+    powertrain: asString(source.powertrain, "Hybride") as RentalPowertrain,
+    brand: asString(source.brand, ""),
+    model: asString(source.model, ""),
+    dailyPrice: asFiniteNumber(source.dailyPrice, 0),
+    weeklyPrice: asFiniteNumber(source.weeklyPrice, 0),
+    monthlyPrice: asFiniteNumber(source.monthlyPrice, 0),
+    securityDeposit: asFiniteNumber(source.securityDeposit, 0),
+    includedKm: asFiniteNumber(source.includedKm, 0),
+    extraKmPrice: asFiniteNumber(source.extraKmPrice, 0),
+    insuranceIncluded: source.insuranceIncluded === false ? false : true,
+    maintenanceIncluded: source.maintenanceIncluded === false ? false : true,
+    roadsideAssistanceIncluded:
+      source.roadsideAssistanceIncluded === false ? false : true,
+    minimumAge: asFiniteNumber(source.minimumAge, 0),
+    minimumLicenseYears: asFiniteNumber(source.minimumLicenseYears, 0),
+    minimumCommitmentDays: asFiniteNumber(source.minimumCommitmentDays, 1),
+    availableFrom: asString(source.availableFrom, ""),
+    contactDetails: asString(source.contactDetails, ""),
+    notes: asString(source.notes, ""),
+  });
+}
+
+export function normalizeRecoveryScenarioEntry(
+  rawValue: unknown,
+): RecoveryScenarioEntry {
+  const source = isRecord(rawValue) ? rawValue : {};
+
+  return createRecoveryScenarioEntry({
+    id: asString(source.id, buildId("recovery-scenario")),
+    createdAt: asString(source.createdAt, createTimestamp()),
+    updatedAt: asString(source.updatedAt, createTimestamp()),
+    type: asString(
+      source.type,
+      "Réparer le véhicule actuel",
+    ) as RecoveryScenarioType,
+    title: asString(source.title, ""),
+    linkedVehicleId: asString(source.linkedVehicleId, LEGACY_DEFAULT_VEHICLE_ID),
+    linkedRentalOfferId: asString(source.linkedRentalOfferId, ""),
+    initialCost: asFiniteNumber(source.initialCost, 0),
+    monthlyCost: asFiniteNumber(source.monthlyCost, 0),
+    possibleResumeDate: asString(source.possibleResumeDate, ""),
+    requiredRevenue: asFiniteNumber(source.requiredRevenue, 0),
+    advantages: asString(source.advantages, ""),
+    constraints: asString(source.constraints, ""),
+    risks: asString(source.risks, ""),
+    status: asString(source.status, "envisagé") as RecoveryScenarioStatus,
+    comment: asString(source.comment, ""),
+  });
+}
+
 export function normalizeGlobalSettings(rawValue: unknown): GlobalSettings {
   const source = isRecord(rawValue) ? rawValue : {};
 
@@ -1596,6 +1762,18 @@ export function normalizeGlobalSettings(rawValue: unknown): GlobalSettings {
     activePlatformProfileId: asString(
       source.activePlatformProfileId,
       DEFAULT_GLOBAL_SETTINGS.activePlatformProfileId,
+    ),
+    activityStatus: asString(
+      source.activityStatus,
+      DEFAULT_GLOBAL_SETTINGS.activityStatus,
+    ) as GlobalSettings["activityStatus"],
+    activeActivityEntryId: asString(
+      source.activeActivityEntryId,
+      DEFAULT_GLOBAL_SETTINGS.activeActivityEntryId,
+    ),
+    retainedRecoveryScenarioId: asString(
+      source.retainedRecoveryScenarioId,
+      DEFAULT_GLOBAL_SETTINGS.retainedRecoveryScenarioId,
     ),
   };
 }
@@ -1837,6 +2015,9 @@ export function normalizeLegacyOrCurrentSnapshot(
   repairPartEntries: RepairPartEntry[];
   quoteEntries: QuoteEntry[];
   reminderEntries: ReminderEntry[];
+  activityEntries: ActivityEntry[];
+  rentalOffers: RentalOfferEntry[];
+  recoveryScenarios: RecoveryScenarioEntry[];
   trips: TripRecord[];
 } {
   const snapshot = isRecord(rawSnapshot) ? rawSnapshot : {};
@@ -1872,6 +2053,15 @@ export function normalizeLegacyOrCurrentSnapshot(
       : [],
     reminderEntries: Array.isArray(snapshot.reminderEntries)
       ? snapshot.reminderEntries.map(normalizeReminderEntry)
+      : [],
+    activityEntries: Array.isArray(snapshot.activityEntries)
+      ? snapshot.activityEntries.map(normalizeActivityEntry)
+      : [],
+    rentalOffers: Array.isArray(snapshot.rentalOffers)
+      ? snapshot.rentalOffers.map(normalizeRentalOfferEntry)
+      : [],
+    recoveryScenarios: Array.isArray(snapshot.recoveryScenarios)
+      ? snapshot.recoveryScenarios.map(normalizeRecoveryScenarioEntry)
       : [],
     trips: Array.isArray(snapshot.trips)
       ? snapshot.trips.map((trip) => normalizeTripRecord(trip, fallbackVehicle, fallbackPlatform))
@@ -2704,6 +2894,9 @@ export function buildExportSnapshot(
   repairPartEntries: RepairPartEntry[],
   quoteEntries: QuoteEntry[],
   reminderEntries: ReminderEntry[],
+  activityEntries: ActivityEntry[],
+  rentalOffers: RentalOfferEntry[],
+  recoveryScenarios: RecoveryScenarioEntry[],
   trips: TripRecord[],
 ): AppSnapshot {
   const exportMonths = Array.from(
@@ -2714,7 +2907,7 @@ export function buildExportSnapshot(
   ).filter(Boolean);
 
   return {
-    version: 5,
+    version: 6,
     exportedAt: createTimestamp(),
     globalSettings,
     vehicles,
@@ -2726,6 +2919,9 @@ export function buildExportSnapshot(
     repairPartEntries,
     quoteEntries,
     reminderEntries,
+    activityEntries,
+    rentalOffers,
+    recoveryScenarios,
     workDaySummaries: exportMonths.flatMap((month) => buildWorkDaySummaries(trips, expenses, month)),
     zoneStats: calculateZoneStats(trips),
     travelCalibrations: buildTravelCalibrations(trips),

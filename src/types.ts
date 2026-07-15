@@ -212,6 +212,38 @@ export const CONFIDENCE_LEVEL_OPTIONS = ["faible", "moyen", "bon"] as const;
 
 export type ConfidenceLevel = (typeof CONFIDENCE_LEVEL_OPTIONS)[number];
 
+export const ACTIVITY_STATUS_OPTIONS = [
+  "activité normale",
+  "repos volontaire",
+  "activité suspendue",
+  "reprise progressive",
+] as const;
+
+export type ActivityStatus = (typeof ACTIVITY_STATUS_OPTIONS)[number];
+
+export const RENTAL_POWERTRAIN_OPTIONS = ["Hybride", "Électrique", "Thermique"] as const;
+
+export type RentalPowertrain = (typeof RENTAL_POWERTRAIN_OPTIONS)[number];
+
+export const RECOVERY_SCENARIO_TYPE_OPTIONS = [
+  "Réparer le véhicule actuel",
+  "Louer un véhicule",
+  "Acheter un véhicule",
+  "Attendre la réparation",
+  "Reprendre progressivement",
+] as const;
+
+export type RecoveryScenarioType = (typeof RECOVERY_SCENARIO_TYPE_OPTIONS)[number];
+
+export const RECOVERY_SCENARIO_STATUS_OPTIONS = [
+  "envisagé",
+  "retenu",
+  "en cours",
+  "abandonné",
+] as const;
+
+export type RecoveryScenarioStatus = (typeof RECOVERY_SCENARIO_STATUS_OPTIONS)[number];
+
 export interface VehicleMaintenance {
   lastOilChangeKm: number;
   oilChangeIntervalKm: number;
@@ -460,6 +492,68 @@ export interface ReminderEntry {
   postponedUntil: string;
 }
 
+export interface ActivityEntry {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  status: ActivityStatus;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  vehicleId: string;
+  comment: string;
+  estimatedResumeDate: string;
+  requiredBudget: number;
+  availableBudget: number;
+  stepsToComplete: string;
+  restartTasks: string;
+}
+
+export interface RentalOfferEntry {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  providerName: string;
+  vehicleCategory: string;
+  powertrain: RentalPowertrain;
+  brand: string;
+  model: string;
+  dailyPrice: number;
+  weeklyPrice: number;
+  monthlyPrice: number;
+  securityDeposit: number;
+  includedKm: number;
+  extraKmPrice: number;
+  insuranceIncluded: boolean;
+  maintenanceIncluded: boolean;
+  roadsideAssistanceIncluded: boolean;
+  minimumAge: number;
+  minimumLicenseYears: number;
+  minimumCommitmentDays: number;
+  availableFrom: string;
+  contactDetails: string;
+  notes: string;
+}
+
+export interface RecoveryScenarioEntry {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  type: RecoveryScenarioType;
+  title: string;
+  linkedVehicleId: string;
+  linkedRentalOfferId: string;
+  initialCost: number;
+  monthlyCost: number;
+  possibleResumeDate: string;
+  requiredRevenue: number;
+  advantages: string;
+  constraints: string;
+  risks: string;
+  status: RecoveryScenarioStatus;
+  comment: string;
+}
+
 export interface VehicleSnapshot {
   id: string;
   profileName: string;
@@ -645,6 +739,9 @@ export interface VehicleEnergyMetrics {
 export interface GlobalSettings {
   activeVehicleProfileId: string | null;
   activePlatformProfileId: string | null;
+  activityStatus: ActivityStatus;
+  activeActivityEntryId: string | null;
+  retainedRecoveryScenarioId: string | null;
 }
 
 export type NotificationCategory =
@@ -703,6 +800,9 @@ export interface AppSnapshot {
   repairPartEntries: RepairPartEntry[];
   quoteEntries: QuoteEntry[];
   reminderEntries: ReminderEntry[];
+  activityEntries: ActivityEntry[];
+  rentalOffers: RentalOfferEntry[];
+  recoveryScenarios: RecoveryScenarioEntry[];
   workDaySummaries: WorkDaySummary[];
   zoneStats: ZoneStats[];
   travelCalibrations: TravelCalibration[];
@@ -853,6 +953,9 @@ export const DEFAULT_PLATFORM_PROFILES: PlatformProfile[] = [
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   activeVehicleProfileId: LEGACY_DEFAULT_VEHICLE_ID,
   activePlatformProfileId: LEGACY_DEFAULT_PLATFORM_ID,
+  activityStatus: "activité normale",
+  activeActivityEntryId: null,
+  retainedRecoveryScenarioId: null,
 };
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
